@@ -17,6 +17,7 @@ namespace EQLogParser
 
     private static readonly Dictionary<string, List<string>> Options = new()
     {
+      { "AggregateWebhooks", ["No", "5s", "10s", "15s", "20s", "25s", "30s"] },
       { "TriggerAgainOption",
         [
           "Start Additional Timer", "Restart Timer", "Restart Timer If Same Name", "Do Nothing",
@@ -51,6 +52,7 @@ namespace EQLogParser
 
     private static readonly Dictionary<string, DependencyProperty> Props = new()
     {
+      { "AggregateWebhooks", Selector.SelectedIndexProperty },
       { "TriggerAgainOption", Selector.SelectedIndexProperty },
       { "FontSize", Selector.SelectedValueProperty },
       { "SortBy", Selector.SelectedIndexProperty },

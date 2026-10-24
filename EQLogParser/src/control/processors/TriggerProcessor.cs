@@ -25,6 +25,7 @@ namespace EQLogParser
     public const string TimerWarnTimeCode = "{timer-warn-time-value}";
     public readonly string CurrentCharacterId;
     public readonly string CurrentProcessorName;
+    private readonly string _webhookOwner = Guid.NewGuid().ToString("N");
     private const int TRIGGER_LOG_DELAY = 750;
     private const int TRIGGER_LOG_BUFFER_SIZE = 25;
     private static readonly Regex TokenRegex = MatchesTokenRegex();
@@ -36,14 +37,6 @@ namespace EQLogParser
     private readonly Dictionary<string, ConcurrentDictionary<string, RepeatedData>> _repeatedSpeakTimes = [];
     private readonly ConcurrentDictionary<string, bool> _requiredOverlays = [];
 
-    /*
-     * Cooldown stamps for the "send-to-chat text but no usable webhook" warning. This sits on the per-match path: a trigger that fires every few
-     * seconds with the box ticked and the URL empty used to print a line each time, which is a config state wearing an alarm. Once per trigger per
-     * few minutes instead — the same shape `TriggerOverlayManager.ShouldWarnNow` gives the missing-overlay warnings, because a misconfiguration can
-     * be fixed mid-session and the next sighting should be news again.
-     */
-    private static readonly ConcurrentDictionary<string, long> _webhookWarnStamps = [];
-    private static readonly long WebhookWarnCooldownTicks = MonoTime.SecondsToTicks(300);
     private readonly ConcurrentDictionary<string, List<TimerData>> _timerLists = [];
     private readonly BlockingCollection<TriggerLogItem> _triggerLogCollection = [];
     private readonly BlockingCollection<LineData> _chatCollection = [];
@@ -131,6 +124,7 @@ namespace EQLogParser
 
     internal async Task StopTriggersAsync(bool remove = false)
     {
+      MainActions.DiscordWebhooks.ClearOwner(_webhookOwner, remove);
       if (_isDisposed) return;
       await _activeTriggerSemaphore.WaitAsync();
 
@@ -811,24 +805,12 @@ namespace EQLogParser
 
       if (ProcessDisplayText(wrapper.ModifiedSendToChat, lineData.Action, matches, null, previousMatches, vars) is { } updatedSendToChatText)
       {
-        var url = wrapper.TriggerData.ChatWebhook;
-        if (string.IsNullOrEmpty(url) || !url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+        if (wrapper.HasLogTimeSendToChat)
         {
-          url ??= "Not Set";
-          if (TriggerOverlayManager.ShouldWarnNow(_webhookWarnStamps, $"chat:{wrapper.TriggerData?.Pattern}",
-                MonoTime.NowStamp(), WebhookWarnCooldownTicks))
-          {
-            Log.Warn($"Can not send to chat, invalid webhook: {url} (trigger '{wrapper.Name}')");
-          }
+          updatedSendToChatText = updatedSendToChatText.Replace(LogTimeCode, DateUtil.FormatDotNetTimeSeconds(lineData.BeginTime), StringComparison.OrdinalIgnoreCase);
         }
-        else
-        {
-          if (wrapper.HasLogTimeSendToChat)
-          {
-            updatedSendToChatText = updatedSendToChatText.Replace(LogTimeCode, DateUtil.FormatDotNetTimeSeconds(lineData.BeginTime), StringComparison.OrdinalIgnoreCase);
-          }
-          _ = MainActions.SendDiscordMessage(updatedSendToChatText, wrapper.TriggerData.ChatWebhook);
-        }
+        _ = MainActions.SendDiscordMessage(wrapper.WebhookSource, updatedSendToChatText, wrapper.TriggerData.ChatWebhook,
+          wrapper.TriggerData.AggregateWebhooks);
       }
 
       if (!_isDisposed && !_triggerLogCollection.IsCompleted)
@@ -1949,6 +1931,12 @@ namespace EQLogParser
       }
       finally
       {
+        var sources = MainActions.DiscordWebhooks.UpdateSources(_webhookOwner, CurrentCharacterId,
+          _isDisposed ? [] : activeTriggersById.Values
+            .Where(wrapper => !string.IsNullOrEmpty(wrapper.ModifiedSendToChat))
+            .Select(wrapper => (wrapper.Id, wrapper.Name)));
+        foreach (var wrapper in activeTriggersById.Values)
+          wrapper.WebhookSource = sources.GetValueOrDefault(wrapper.Id);
         _activeTriggersById.Clear();
 
         foreach (var kv in activeTriggersById)

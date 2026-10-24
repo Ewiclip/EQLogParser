@@ -5,6 +5,57 @@ Read the relevant section before changing import, sharing or migration code so d
 quietly reversed. Style rules live in [CodingStandards.md](CodingStandards.md); this file answers
 *"why is it like this?"* and *"what must not change without a decision?"*.
 
+## Discord Webhook Delivery
+
+`AggregateWebhooks` is the per-trigger Data Sharing dropdown. Its stored value is the selected
+index: 0 means No; 1–6 mean 5–30 seconds in five-second steps. New triggers and older imports
+default to No. Trigger copying, saving and sharing retain the aggregation setting.
+Temporary failures always retry. A missing or whitespace-only webhook URL means Discord delivery
+is not configured. Such matches are skipped before queueing, even when Text to Send is populated;
+they create no pending status, HTTP request, or webhook error.
+
+`WebhookDispatchQueue` collects text independently for each processor/character, trigger, URL and
+interval. The first match starts a fixed window; later matches append a newline and their text
+without extending the deadline. Matches at or after the deadline start another window. No sends
+each match separately. Identical matches remain separate data. All sends share an asynchronous
+per-webhook gate, including URL query variants, so a retry pauses subsequent sends to that webhook.
+
+`WebhookMessage` splits the concatenated content into at most 2,000 UTF-16 code units per request,
+without cutting a surrogate pair. It adds an embed footer:
+`EQLP1|<32-character batch ID>|<part>|<total>|<A or N>|<SHA-256>`.
+Parts are one-based. A means an aggregation window; N means one original trigger match.
+The digest is lowercase hexadecimal SHA-256 of the complete UTF-8 content. Receivers concatenate
+parts without adding separators and verify the digest before processing. The footer is also sent
+for a single part. Retries reuse the exact payload and ID. This permits downstream deduplication
+of uncertain deliveries; Discord itself may still display duplicate messages after a timeout.
+Consumers must support this protocol before they can process aggregated or split messages.
+
+Requests use `wait=true` to obtain confirmation. Rate limits wait for the longest deadline from
+`retry_after`, `Retry-After`, or reset headers, including fractional seconds and global limits.
+Successful exhausted-bucket responses delay the next request. Malformed rate-limit bodies fall
+back to headers or one second. HTTP 408/5xx, network failures and timeouts retry after 5, 10, 20,
+40, then 60 seconds, capped at 60 seconds with no retry-count limit.
+
+Other HTTP errors and invalid URLs discard that logical message and its unsent parts without
+retrying. They flag the webhook field and the queue status beside Cache Update Pending. The status
+is clickable to visit affected triggers. A later successful send to that URL, or a corrected URL
+for the same character/trigger, clears the error. Editing alone does not clear it. Diagnostics
+do not intentionally include webhook URLs or tokens.
+
+Disabling a trigger or its parent cancels its collecting windows, queued sends and retry waits
+immediately, before the normal trigger cache refresh. Character state copies and imports also
+notify the queue through the store's state-change event. Source identity prevents an old cached
+wrapper from sending after disable/re-enable;
+another character using the same trigger remains unaffected. Stopping a processor clears its
+pending sends. A request already accepted by Discord cannot be retracted.
+
+The queue and errors live in memory; closing EQLogParser discards pending work. There is currently
+no queue size cap or persistent outbox. The queue count represents logical messages/windows,
+including collecting and retrying messages, rather than individual lines or split HTTP requests.
+
+References: [Discord rate limits](https://docs.discord.com/developers/topics/rate-limits) and
+[webhook execution](https://docs.discord.com/developers/resources/webhook#execute-webhook).
+
 ## The parsing direction: what we are building and why (2026-10)
 
 *Orientation chapter — the shape of the work before its details. Every law summarized here has a full section in this

@@ -52,6 +52,7 @@ namespace EQLogParser
       TriggerStateDB.Instance.OverlayImportEvent += OverlayImportEvent;
       TriggerStateDB.Instance.TriggerConfigUpdateEvent += TriggerConfigUpdateEvent;
       TriggerStateDB.Instance.TriggerUpdateEvent += TriggerUpdateEvent;
+      TriggerStateDB.Instance.EventsTriggerStateChanged += MainActions.DiscordWebhooks.SetEnabled;
       TriggerStateDB.Instance.TriggerImportEvent += TriggerImportEvent;
       MainActions.EventsLogLoadingComplete += TriggerManagerEventsLogLoadingComplete;
       TriggerConfigUpdateEvent(null);
@@ -437,6 +438,7 @@ namespace EQLogParser
       TriggerStateDB.Instance.OverlayImportEvent -= OverlayImportEvent;
       TriggerStateDB.Instance.TriggerConfigUpdateEvent -= TriggerConfigUpdateEvent;
       TriggerStateDB.Instance.TriggerUpdateEvent -= TriggerUpdateEvent;
+      TriggerStateDB.Instance.EventsTriggerStateChanged -= MainActions.DiscordWebhooks.SetEnabled;
       TriggerStateDB.Instance.TriggerImportEvent -= TriggerImportEvent;
       MainActions.EventsLogLoadingComplete -= TriggerManagerEventsLogLoadingComplete;
       await _logReadersSemaphore.WaitAsync();

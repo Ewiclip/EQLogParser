@@ -56,7 +56,7 @@ including collecting and retrying messages, rather than individual lines or spli
 References: [Discord rate limits](https://docs.discord.com/developers/topics/rate-limits) and
 [webhook execution](https://docs.discord.com/developers/resources/webhook#execute-webhook).
 
-## The parsing direction: what we are building and why (2026-10)
+## The parsing direction: what we are building and why
 
 *Orientation chapter — the shape of the work before its details. Every law summarized here has a full section in this
 file (dates in headings), a short form in `AGENTS.md`, and tests; nothing new is decided on this page. It exists so
@@ -168,7 +168,7 @@ only a row that was alive when it happened, and a row with no death inside it ho
 
 The derived list wears legacy's face: **Initial Hit Time | HP | Name**, inactivity dividers in legacy's warning color,
 tooltips, selection restored across every re-derive by name+begin (`FightKey`, since projection renumbers). What it no
-longer says, on purpose (2026-10, from live feedback): no reading-progress duplication inside the dock — the
+longer says, on purpose (from live feedback): no reading-progress duplication inside the dock — the
 application-wide status line owns percent-and-seconds; the band's one phrase is "Building derived fight list…" (default
 color, indeterminate bar, captured-fact count under it). Who clicked is not part of that decision: for as long as the open
 session has shown no rows AND has handed lines to the parser, the panel says its list is being built. An earlier rule made the
@@ -183,7 +183,7 @@ opens at launch only if the capture's LAST moments hold a fight; its X closes th
 window but disables nothing — next damage brings the board back onto the same seconds (the start second is static for
 exactly this).
 
-**The list belongs to the capture that is open** (2026-11, from "clear all does nothing — it just leaves the fight list full of
+**The list belongs to the capture that is open** (from "clear all does nothing — it just leaves the fight list full of
 content", reported together with "opening a new file shows the old one while it loads" and "opening a file with no content just
 leaves the old list"). One cause, three symptoms: `Derived` is the only thing that ever replaces the fight rows, so (a)
 whenever no
@@ -224,7 +224,7 @@ go before equalities; findings need **several captures** before any of them beco
 WPF/Skia
 surfaces — Windows is the only place `EQLogParser.Wpf.Test` executes, so its laws must also be readable from code.
 
-### What the legacy queue became, and what is actually left (2026-10-09)
+### What the legacy queue became, and what is actually left
 
 **The deletion finished.** `FightManager`, `DamageOverlayStatsBuilder`, the legacy fight table, the parser's `FM` feed and
 the whole parity
@@ -3137,16 +3137,21 @@ Configure used to be a form painted on top of the thing it configured: pressing 
 preview instance whose face carried eleven controls, three dropdowns deep, with Save/Cancel/Close buttons that enabled
 themselves only after something moved. The FCT panel had already proved the better shape — the overlay stays nothing
 but numbers while a companion window holds every decision — so the inline panel is gone and `DamageMeterSettingsWindow`
-took its job: two accordion sections that each answer one question — STYLE (thin bars, font size, rows, then bar color
-and highlight) and OPTIONS (hide other players, show % damage, streamer mode, class filter, crit rate, reset) — Save and
+took its job: two accordion sections that each answer one question — STYLE (thin bars, then font size and rows, then bar color
+and highlight) and OPTIONS (hide other players, streamer mode, class filter, columns, crit rate, reset, tabs) — Save and
 Cancel as the entire exit vocabulary, everything previewed live on the sample stage and nothing written to ini until Save.
 
-The staging rides a `DamageMeterConfigState` copy that `Load()`s with exactly the overlay constructor's guards, so
-setup always opens on what is on screen. The overlay grew three internal verbs — `PreviewMeterState` (apply without
+`DamageMeterConfigState.Load()` is the **one** reader of these settings keys and the only place their ranges are judged: the overlay constructor opens from it
+exactly as the setup window does, so a meter and its configure panel cannot disagree about what `settings.txt` says. That law has a scar behind it — this file
+used to parse each key twice, and the copy in the constructor read `OverlayEnableCritRate` with no 0..3 clamp while the staged copy clamped it, which is how a
+foreign settings file put the panel and the live meter out of step. The one value the window re-checks is the selected class, because "is that class still in
+the game" needs `EQDataStore`, which the staged object deliberately does not touch: a name no longer offered reads as ANY_CLASS on both surfaces and on the
+next Save. No headless test reaches these guards (app assembly, `ColorConverter`), so "a hostile settings.txt is answered the same way twice" is a Windows gate
+in `docs/ReleaseChecklist.md`. The overlay grew three internal verbs — `PreviewMeterState` (apply without
 persisting), `CommitMeterState` (apply, persist the same ini keys the old panel wrote, hand back to the game) and
-`DiscardMeterSettings` (just end: MainWindow reopens a live meter that reads the untouched values back off disk, so
-discarding restores itself and no undo code exists). The `_current*` fields stopped being half-state/half-control —
-rows, font, mini bars, percent, streamer and both colors now have working-set fields the Update methods maintain, and
+`DiscardMeterSettings` (just end: the next live meter reads the untouched saved values, so
+discarding needs no undo writes). The `_current*` fields stopped being half-state/half-control —
+rows, font, mini bars, columns, streamer and both colors now have working-set fields the Update methods maintain, and
 the update tick reads those instead of asking a ComboBox that no longer exists.
 
 Two deliberate inherited oddities. Geometry stays out of the staged object: dragging and resizing the stage is the
@@ -3157,9 +3162,15 @@ so "keep these" and "walk away" are enough words.
 
 Placement follows the companion conventions: the window docks right of the meter when the work area has room and left
 when it doesn't, clamps into the screen, moves by the stage's drag delta so a pairing the user chose survives being
-moved, and closes with its owner automatically because `Owner` says so. The bar pool rebuilds only when the row count
+moved, and closes with its owner automatically because `Owner` says so. That arithmetic is desktop-pixel only and lives in
+`MeterPanelPlacement` (`PlaceBesideStage`, `FollowWidth`); do not move it back into this window over `SystemParameters.WorkArea`,
+which is the primary monitor's work area in DIPs and landed the panel on the wrong screen — the full law is under
+"Damage meter column switches: hiding one reserves no width". The bar pool rebuilds only when the row count
 actually changes — measured while wiring: previewing every color-picker stop through `UpdateMaxRows` recreated and
 reseeded every `DamageBar` on each intermediate stop, which is a flicker the player never asked for.
+`PreviewMeterState` also owns the height-refit decision: font, thin bars, row count or panel choice can change the content geometry;
+class, colour and other unrelated previews preserve a manually resized stage. `UpdatePanels` never independently requests a refit.
+The Save/Cancel and manual-height sequences are Windows gates in `ReleaseChecklist.md`.
 
 The live toolbar sizes to its content in both axes. The operator's screenshot exposed two separate layout problems:
 DPS/Tank and the left controls sat below Damage/DPS/Sec, and the header-to-first-player gap was much larger than the
@@ -3179,15 +3190,16 @@ the aligned header. The layout must not depend on the HWND losing its native min
 
 `DamageOverlayToolbarWindow.ContentHeight` now measures `toolbarPanel.ActualHeight` plus its top/bottom margins, not
 `Window.ActualHeight`. The panel is top-aligned, so spare native window height does not stretch that measurement.
-Its own `SizeChanged` raises `ContentHeightChanged`; `ToolbarContentHeightChanged` uses that content measurement for both
+Its own `SizeChanged` raises `ContentSizeChanged`; `ToolbarContentSizeChanged` uses that content measurement for both
 the meter header minimum and the existing outer-height reserve. Native-window-only height changes cannot add a blank row.
 The native hook remains a window policy, not the source of header spacing. No negative margins or fixed screenshot-sized
 subtractions are used; real font/DPI-driven content growth still earns room.
 
 The Grid header's font-specific floor is now 16/18/20/22 DIPs for body fonts 10/12/14/16. `UpdateColumnSizes` owns that
-floor and passes it to the toolbar's `UpdateFontSize`; its column widths, right margins, class-icon sizes and existing
-header fonts remain unchanged. Both strips top-align with a two-DIP top inset and Display text formatting, rather than
-centering inside spare height. The toolbar owns a small Button template rather than inheriting theme chrome; buttons
+floor (and the class-icon size, still an app-global resource) and passes it to the toolbar's `UpdateFontSize`; the numeric
+column widths, their right insets and the header's one-point-over-rows font come from `MeterColumnLayout` through
+`ApplyColumnLayout`, shared with every row — see "Damage meter column switches: hiding one reserves no width".
+Both strips top-align with a two-DIP top inset and Display text formatting, rather than centering inside spare height. The toolbar owns a small Button template rather than inheriting theme chrome; buttons
 have horizontal padding only, with no per-button top offsets or extra bottom inset. Its almost-transparent background
 retains a hit area throughout each button, not just on the glyph. Font leading and the first data row's own inset provide
 the rest of the visible spacing: the target is roughly four pixels, not four additional pixels on top of those existing
@@ -3207,7 +3219,7 @@ labels or cover the first data row. That alone was incomplete: the operator repo
 half after the earlier size-to-content change. Raising a header's minimum inside a window with an unchanged saved height
 takes the extra space from the rows below it.
 
-`ToolbarContentHeightChanged` reserves the excess in the **outer window too**. `MeterHeaderReserve` calculates
+`ToolbarContentSizeChanged` reserves the excess in the **outer window too**. `MeterHeaderReserve` calculates
 `extra = max(0, measured toolbar content height - baseline header height)` and changes the live window by `new extra - previous
 extra`. The baseline is the font-specific `controlPanel.Height` already included in the saved geometry; for a fixed
 baseline, `window height - max(baseline, toolbar content height)` stays unchanged. Repeated size/width notifications spend nothing,
@@ -4136,7 +4148,7 @@ One of those sentences shipped broken, in a way worth recording because it is no
 commit — so what failed was
 the assertion nobody on that machine could run. Wording tests for app-side code live in `EQLogParser.Wpf.Test`, which
 *builds* everywhere but whose
-tests need Windows; "the suite passes" meant 1,168 tests in a different assembly and said nothing about these.
+tests need Windows; "the suite passes" was said about the headless assembly, which says nothing about these.
 
 The message now reads as a sentence ("1 collection accounts", "3 collections account"), which is what the test wanted. The
 durable fix is where it
@@ -4913,8 +4925,7 @@ clicked line falls in a player's
 - Two spec tests pinned the old behaviour and were replaced, not deleted:
 `GetTotalBridgesTheSegmentListAsASideEffectOfBeingRead` became
   `AddingWithinATickWeldsTheRunAtInsert` + `ReadingTheTotalLeavesTheListAlone`, and the brute-force run model in
-  `ManyOutOfOrderAddsProduceExactlyTheBruteForceRuns` now folds short silences because `Add` does. Those were the only 2
-  failures in 1,209 tests when the rule
+  `ManyOutOfOrderAddsProduceExactlyTheBruteForceRuns` now folds short silences because `Add` does. Those were the only failures in the suite when the rule
   moved; both were assertions about mechanism. `AssertSortedAndDisjoint` gained the gap rule, so every sweep in that file
   proves the invariant for free, and
   `ExactlyATickOfSilenceWeldsAndOneSecondMoreDoesNot` pins the boundary (6 welds, 7 does not).
@@ -5292,7 +5303,7 @@ What an entry buys: R6 (`R6-npcdb`) identity — **Medium** when the name contai
 token, so `A bramble sentinel` cannot be anybody's PC), and **`RuleStrength.Listed` = 20** for a bare word — plus
 NPC-side fight edges through `IsKnownNpc` in `FightDeriver`/`FightManager` and kill labelling in `EventViewer`.
 
-### What the `Listed` rung is, and what it is not (2026-11)
+### What the `Listed` rung is, and what it is not
 
 The operator's sentence for this file: *"if it's in npcs.txt it's certain an NPC — it just might not be this time."*
 A bare word used to sit at `Weak` (10), one rung above nothing, which understated it. It now has its own rung,
@@ -5319,7 +5330,7 @@ players answer to — keeps its verdict wherever a line says something about her
 (`Era`mi`, `Sorshkah`) cannot be character names at all — `'` is not legal in one — so they settle the shape question
 but never the collision question.
 
-### The 2026-11 beta batch: 36 rows from one capture
+### The beta batch: 36 rows from one capture
 
 39 distinct name fields from `eqlog_Kizant_beta.txt` (344 MB, Oct 11) went through the shipped file and the rule book.
 **3 were already in it** (`Scorn`, `A wailing banshee`, `A forsaken banshee`), so **36 rows were added**: the
@@ -5688,7 +5699,7 @@ explicitly. A fixture that reconstructs the production precondition without bein
 is missing.
 
 
-## The sighting ledger: what this server's older logs concluded (2026-08-12)
+## The sighting ledger: what this server's older logs concluded
 
 Asked whether the classifier's data should be serialized and built up across log files. Splitting the question was the
 whole answer, because two different things hide inside it. **Verdicts are already persisted** where a person said them:
@@ -5746,7 +5757,7 @@ at all" (`UnresolvedInCapture`, `Row.IsUnresolved`). That correction **is** in t
 `ClassificationReportTest` pinning both halves (roster membership is itself a claim, and a name that appears in no fact stream
 is not "unplaced in this capture"). `NamesTableTest` reads the counter too, so it cannot go missing quietly again.
 
-## Breadth of evidence, measured: what a name's counts say when its shape does not (2026-11)
+## Breadth of evidence, measured: what a name's counts say when its shape does not
 
 Four identity rules whose thresholds are numbers rather than adjectives. Each number below is why a gate sits where it sits;
 moving one means re-measuring over several captures, not re-arguing the sentence. (Code comments point here — the censuses
@@ -5842,7 +5853,7 @@ answers that record; nothing backdates). Headless class writes need the App.xaml
 (`CombatRecordLookup.IsValidClassName`) wired or they fail in silence — see `FrenzyClassTest` setup. Frenzy Strike AA casts
 (`... VII Caza`) stay unused: the AA rank word breaks the roman-rank anchor, and extending it is a measured step of its own.
 
-## The Names window: four columns, dropdowns in two of them, and a census that is asked for (2026-08-12, re-shaped 2026-08-13 and 2026-11)
+## The Names window: four columns, dropdowns in two of them, and a census that is asked for
 
 `NamesTable` (View → **_Names**, docked beside the derived fight list) replaces the three hand-maintained panes. The
 panes could show what somebody typed; they could not show what the classifier concluded, so a wrong verdict had no
@@ -5909,7 +5920,7 @@ Design points worth keeping:
   absence.
   `NamesTableTest` pins each surviving sentence and the one-line law (asserted again on the cleared-claim row and the
   disagreement row, the two states most likely to grow a second line).
-- **WHY speaks two words, and the vocabulary is closed** (2026-11). The column used to print `R15-healed` and
+- **WHY speaks two words, and the vocabulary is closed**. The column used to print `R15-healed` and
   `Prior:R7-graph`, which is the rule book's private vocabulary rendered in the one place a person reads instead of
   greps — and at three times the width of the class column. `IdentityVocabulary.WhyWord` (Core, next to the rules that
   write these strings) maps each code to two words: `Healed`, `Chat`, `Who`, `Spell`, `Owner in Name`, `NPC List`, `Mob Name`,
@@ -5944,7 +5955,7 @@ Design points worth keeping:
   every saved ledger row — for the sake of a tooltip. Display detail stays on the display object; the tags stay words.
   Guard: only a verdict whose source starts with `R4-spell`/`R20-petspell` may name a cast, so a borrowed
   `Prior:R4-spell` never credits this capture with a cast it did not see.
-- **A verdict is edited where it is read: the pencil in its own cell** (2026-11). The right-click menu is gone from this
+- **A verdict is edited where it is read: the pencil in its own cell**. The right-click menu is gone from this
   grid — and not replaced by another menu. Its verbs are now two `ComboBox`es in popups opened over the clicked cell
   (`UiElementUtil.OpenCellPopup`) — **the helper MainWindow's Pet Owners edit and `DamageSummary`'s Group cell already
   call**, so
@@ -6022,10 +6033,80 @@ per kind) — these
 **compile but cannot run on Linux**, so treat them as unbuilt evidence until a Windows run. The parts that do not need WPF moved
 to the cross-platform assembly on purpose: `IdentityVocabularyTest` (vocabulary coverage both directions, the corpus check, the
 echo-unknown law, prior/owner-suffix forms, one-line tooltips and no blank tooltip, `Overrulable`, the dropdown's five entries
-and its one Unknown), `CensusHealProofTest` (4), `CensusCastProofTest` (4) and `SpellEffectIdentityTest` (4). Full
-cross-platform suite at this commit: **1569 passed, 8 skipped**.
+and its one Unknown), `CensusHealProofTest`, `CensusCastProofTest` and `SpellEffectIdentityTest`.
 
-## A spell is not a fighter: R21, and the two proofs that a name is one (2026-11)
+## Spell identity belongs to the parsed role, not the spelling
+
+**Only `DamageFact.AttackerIsSpell` supplies an R21 claim.** Neither a spell-database match nor another caster's spell
+operand identifies a combatant. The report must not make that inference either. Historical `R21-spellcast` and
+`R21-spelleffect` words remain readable, but neither is emitted as a new verdict.
+
+`RuleStrength.SpellShape = 25`: above weak registry seeds and Listed (20), below Medium (30) ownership/behaviour evidence.
+A name also present as an ordinary attacker, damage defender, healer/healed name or cast subject is a combatant, not a spell-only name;
+this refusal says nothing about whether it is a Player, Pet, Merc or NPC. R21 carries both role sets and recomputes claims
+on each fresh timeline, so a later combatant sighting retires an earlier spell claim. R6/R14/R16 do not apply creature-name
+heuristics to an already identified effect; this is a role exclusion, not a strength tie. R7 never uses flagged damage
+as evidence about the combatant sharing its name, and R15/R18 cannot count it as that combatant swinging back at the raid.
+
+The parser sets the flag for `… from Effect by .`, `… from by Effect.`, `You have taken … from Effect.`, and
+`… has taken … damage by Effect.`. Named casters and `from your Effect` are entities, not effects. There is no currently
+supported grammar that substitutes an effect into the defender slot. A database name alone must never manufacture such a
+role. Self-targeting is a ROUTING fact, not a naming one: `You have taken 17741 damage from Cloudburst Strike Feedback XII.`
+(44 lines on `eqlog_Kizant_xegony-2.txt`) still types its name Spell, and only its damage is refused — on flagged occurrences,
+never on an ordinary attack by a similarly named entity. Projection and pending meter activity read the flag before the name's
+identity: an effect cannot borrow a player's damage credit, lose incoming damage as friendly fire, or become self-damage merely
+because its name equals its victim's. `AimedAtCombatAnchor` shares the role-aware direction between projection and pending
+activity: a flagged effect targets its anchor only when the defender is NPC-side, even when both names are equal. This
+keeps same-named player, pet, mercenary, ownership-only and unplaced victims incoming, while an NPC-side victim stays output;
+`SpellRoleIdentityTest.AnEffectMatchingItsVictimKeepsTheVictimsCombatDirection` pins routing, direction windows, pending panels
+and materialized board totals. No THJ/EMU capture in the local corpus produces a flagged fact (0 over Bulron, Ikkydruid
+and Roper — that format names its caster), so the slot swap in `DamageLineParser`'s EMU arm never moves a flag today.
+
+**The Strangle failure:** on `eqlog_Kizant_xegony-strangle.txt`, the original classified run captured 89,598 damage facts
+and 29 fights. `Player@30 / R5-owner` lost to `Spell@60 / R21-spelleffect`. All 371 outgoing hits (471,210,187 damage) were
+refused as NPC-versus-NPC. Boss damage on Strangle was also lost. The line
+`[Fri Oct 23 21:55:59 2026] Strangle has taken 178193 damage from Infected Magic by .` then opened a bogus Strangle fight.
+The diagnostic Player override removed that row (29 → 28), moving projected damage 33,681,532,092 → 34,155,544,926.
+This is not permission to identify all casters or melee attackers as players: it removes a false Spell verdict and lets the
+existing ownership, cast-family, graph and other rules answer. Re-parsing after the fix reproduced that override's exact
+28 fights and 34,155,544,926 total without an override; Strangle's rollup is 471,210,187 and the remaining effect names are
+Infected Magic and Mental Contortion XI.
+
+The dictionary verdict was not merely over-specific on live logs: on the THJ captures it had typed **36 / 42 / 77** names Spell
+whose only claim was spelling, and `Fireball`, `Frost`, `Anarchy` and friends are characters there
+(`Fireball (Magician) has logged in for the first time.`, `Frost says out of character, …`). They now read Unknown, or NPC where
+npcs.txt really lists the word — honest-but-unexplained instead of confidently wrong, with the same numbers either way.
+
+**The corpus sweep** ran every capture under `local/logs/live` and `local/logs/emu` (15 files, both revisions, fresh
+RegistrySeed + full classification, disposable probe) and diffed verdicts, row lists, routed/unrouted counts and totals. Only
+three captures moved any number:
+
+| Capture | Fights before → after | Projected damage before → after | Routed damage/tanking facts |
+|---|---:|---:|---|
+| Kizant xegony-strangle | 29 → 28 | 33,681,532,092 → 34,155,544,926 | 84,677/4,455 → 85,047/4,475 |
+| Incogitable xegony | 4,639 → 4,639 | 587,768,588,644 → 587,777,731,579 | 1,477,397/415,555 → 1,477,603/415,879 |
+| Bulron thj / Roper thj | unchanged | +44 / +546 damage | +2 / +4 damage facts |
+
+Unrouted counts did not move anywhere (0, and 358 on Incogitable), so nothing was dropped to make room. The other twelve
+captures differ only in which word an identity row carries — including all four where flagged feedback names gained their
+Spell verdict, and the EMU captures where 36/42/77 dictionary-only Spell rows went unexplained.
+
+The second capture restores Mojo/Infection as Pet and Vengeance as Player; Penance/Purification/Frost return to NPC-list
+verdicts rather than Spell. Bane and Outer Brood Energy Surge become Unknown, not guesses: the latter has a reversed-slot
+sentence (`You have taken 185265 damage from Herald of the Outer Brood by Outer Brood Energy Surge.`), not one of the
+casterless grammars. Dictionary identity is not a repair for that parse ambiguity. Neither larger capture had a flagged
+effect sharing a Player/Pet/Merc verdict; the fixture tests that collision deliberately. The Unknown-victim routing stays
+incoming under the effect's row, rather than inventing fights named for unplaced victims.
+
+`SpellRoleIdentityTest` pins parser roles, the Strangle reproduction, both combat directions, name collisions, the strength
+ladder and carried-versus-replayed classification. `SpellEffectIdentityTest` pins unattributed damage credit, that self-target
+feedback keeps its effect word while earning no row and no board credit, and the removal of the report's cast-token shortcut. These fixtures are tracked; the diagnostic log and disposable probe are not.
+
+## A spell is not a fighter: R21, and the two proofs that a name is one
+
+Historical rationale below: the dictionary/cast-token identity feeds, Strong strength and report-time cast override were
+superseded by **“Spell identity belongs to the parsed role, not the spelling”**. Their measurements explain how those
+shortcuts arose; they are not current classification authority. `from your` names the local player, not an effect.
 
 The Names window reported `Curse XVII Rk. III | Player | Our side`, next to rows for Burning Glob Burst, Spiter Blood and a
 pile of chants — names in `spells.txt` standing in the roster column. The mechanism was the parser's own, and correct as far as
@@ -6288,8 +6369,7 @@ asks"). Legacy still accumulates per line inside `BattleRow`; deleting that is l
 never persisted — every row still answers "why" from this log's lines. The Names window (`3b92e096`) replaced the three
 hand-maintained panes as a surface.
 
-**6. "Don't break what works."** `EQLogParser.Test` **1,463 pass / 5 opt-in skipped**, app + Core + both test assemblies
-at **0 warnings**. Parity bars re-read after the gate fix: Incogitable unchanged (healing 373 healers exact with zero
+**6. "Don't break what works."** Parity bars re-read after the gate fix: Incogitable unchanged (healing 373 healers exact with zero
 mismatched (person, column) pairs; raid damage legacy 578,233,842,799 → derived 581,343,395,690, +0.54 %; 22 of 374
 shared people move on Total), and — the sign that the dropped-fact hole closed rather than shifted things — **derived row
 count now equals legacy's exactly (4,471 / 4,471; it was 4,312)**. On the 2024 capture: healing 104 healers exact,
@@ -6363,33 +6443,24 @@ matter and I had them backwards):
   belongs to neither, exactly as legacy's `HealingStatsBuilder` behaves. My first test put a heal in that gap at `t=5`
   and expected it inside a window ending at `t=39.5` — measured 0, and the measurement was right.
 
-Suite **1,467 pass** (5 opt-in), solution and `EQLogParser.Wpf.Test` at **0 warnings**. The unwindowed path is
-unchanged by construction (delegation + a null case that cannot arise when unbounded), so the real-log parity bars
+The unwindowed path is unchanged by construction (delegation + a null case that cannot arise when unbounded), so the real-log parity bars
 measured earlier still stand; they get re-run with the overlay swap, which is the next step and needs a Windows run.
 
-## The meter reads the derived engine now, and only its source moved
+## The meter reads the derived engine
 
-`OverlayDamageFromMirror` (settings.txt, off by default) points `DamageOverlayWindow`'s once-a-second build at
-`DerivedTotals.ForOverlay(rows, index, facts, heals, fromT, toT)` — damage and tanking halves, each on its own builder
-instance, returned as the `DamageOverlayStats` container the overlay already paints. What did NOT move: the meter's
-policy. `_meterWindowT` is stamped at open/reset (`ResetOverlayFights` moves it too), and the expiry test is still
-legacy's — quiet for longer than `mode == 0 ? FightManager.FightTimeout : mode` and the board zeroes with the window
-reopening here. That split is the whole point of the seam: *which seconds* is the surface's business, *what they add up
-to* is the derivation's, and it is why no "current fight" concept had to be invented inside the capture.
+`DamageOverlayWindow` reads paired damage/tanking publications from `DamageMeterCalculation`. `DerivedTotals.ForOverlay`
+is the full-build reference for the same selected lives and record bounds, not the live once-a-second implementation.
+There is no engine-selection setting or legacy fallback. Selection and receipt expiry belong to `DamageOverlayLifecycle`;
+Reset uses a captured ordinal, never an opening/reset timestamp. See "Damage overlay: fight accounting and display retention"
+and "Incremental damage meter: compact accounting, paired publication" for those contracts.
 
-Two decisions worth keeping: a scope with nothing in it **holds the previous board** rather than painting zero (a derive
-runs when the log goes quiet, so an in-progress fight can be seconds from landing, and a blank board would read as
-"nobody is doing damage"); and an exception on this path blanks the board and logs it (first at once, then every 30th tick
-with a count),
-because — as the operator put it — a fallback to code we intend to delete hides errors: a derived board that quietly became
-a legacy board looks exactly like a correct one. `OverlayDamageFromMirror` therefore means "derived numbers or nothing".
-`ForOverlay` is pinned by `TheMeterAndASelectionOfTheSameRowsPrintTheSameNumber` (the meter's column equals a select-all of
-the same rows per player and in total; its tank half counts the 120 + 90 the mobs landed; an empty window is no scope; a
-sliced meter equals a sliced list) and `TheMeterBuildsOnItsOwnBuilders` (a refresh leaves the shared damage builder's answer
-alone and never announces on the shared tank board). What still needs watching on Windows is not the arithmetic but the
-wiring: that the timer's window advances, that expiry zeroes the board, and whether a real pull's numbers look like the pulls.
+An empty scope **hides the previous presentation** rather than retaining stale numbers or painting a fake zero. A build
+exception follows that same cleanup path and logs first at once, then every thirtieth failure with its running count.
+`TheMeterAndASelectionOfTheSameRowsPrintTheSameNumber` pins reference totals against selecting the same rows, including
+incoming damage and bounded slices. `TheMeterBuildsOnItsOwnBuilders` ensures the reference does not change shared boards
+or announce on them. Windows popup/hide and timer wiring remain release checks.
 
-**One wording casualty of that move, restored 2026-11: the encounter count.** The meter used to build its own title string and
+**The encounter count stays abbreviated.** The meter used to build its own title string and
 printed `C(10): Mob`; once its numbers came from a board it inherited that board's `Combined (10):`, which is nine characters
 longer on a title bar that already carries total, DPS and seconds. The shape is now asked at the door that reads it —
 `GenerateStatsOptions.ShorthandCombinedCount`, set only by `ForOverlay`, formatted by the one helper `StatsUtil.CombinedPrefix`
@@ -6397,7 +6468,7 @@ all three builders call — so a pane keeps the whole word (it has a line to its
 string) while the meter goes back to `C(n)`. Pinned by `DerivedTotalsTest.TheMeterAbbreviatesTheCountASummaryPaneSpellsOut`
 (both meter columns abbreviated, the board spelled out, a single-row scope carrying no prefix anywhere).
 
-## A charm takes a mob off the enemy list: what that does to the rows, the boards and a corpse (2026-11)
+## A charm takes a mob off the enemy list: what that does to the rows, the boards and a corpse
 
 `X has been charmed.` is not a status note, it is the raid finishing an encounter without killing anything: the mob left
 the enemy side. Treating it as one more damage event is how the fight list reported "still going" over a mob that had become
@@ -6521,9 +6592,7 @@ were changed deliberately to the new conservative rule.
 name Incogitable, but neither contains captured outgoing damage, so neither manufactures a zero-damage child.
 Full-reference and compact-meter results agreed in the replay. The disposable real-log assertion was deleted after
 verification; the data-driven fixtures remain. The six-second lookback boundary is asserted with a cast at exactly
-six seconds accepted and one at seven rejected. Validation: **2,276 headless tests passed, 6 skipped**; the full
-no-incremental solution build, including the WPF test assembly, reported **zero warnings/errors**. Windows UI
-interaction was not executed on Linux.
+six seconds accepted and one at seven rejected. Windows UI interaction stays a gate in `docs/ReleaseChecklist.md`.
 
 **SPA-flag replay checks** (live grammar unless marked EMU):
 
@@ -6540,9 +6609,7 @@ exercise conservative refusal, not positive ownership attribution; the parsed fi
 messages positively. The existing same-process reproducibility gate also passed over Incogitable twice: **4,648 rows,
 94 verified pets, 416,025 tanking-side facts and zero unrouted facts** on both reads, with identical verdicts and routed
 damage sums. Re-running `createdata.py` against the local raw spell inputs in a temporary directory reproduced every
-shipped row exactly. Final validation: **2,283 headless tests passed / 6 gated tests skipped**, plus that separately
-executed real-log reproducibility test; the full no-incremental solution build (including the WPF test assembly) had
-**zero warnings/errors**. No WPF runtime result is implied by these headless checks.
+shipped row exactly. Every result above is a headless one: nothing here implies a WPF runtime answer.
 
 **Broader live-log survey:** a disposable console harness outside the repository reused `PipelineHarness` and the
 actual classifier (not a text-only imitation), replaying each whole file in order. The compressed 2019 capture was
@@ -6602,8 +6669,6 @@ handoff window's opening second before Hazysongs's following-second confirmation
 existing second-resolution ownership intervals, not to the window's later holder. All **37** owner/children groups
 sum to their parents, and the expanded rows sum to raid damage **596,119,928,818**. This checks actual summary child
 rows, unlike the earlier window-only census. The disposable console harness was removed; the parsed regression remains.
-Validation after this correction: **2,284 headless tests passed / 6 gated tests skipped**; the full no-incremental solution
-build, including the WPF test assembly, reported **zero warnings/errors**. WPF runtime checks were not executed on Linux.
 
 ### A raised corpse needs no rule, and two things must never be inferred from it
 
@@ -6625,7 +6690,40 @@ A named corpse therefore belongs in the fight list only because facts put it the
 names keep the suffix), and a corpse DoT that hits us is an ordinary hostile under its stripped name. All four cases are pinned
 by `EQLogParser.Test/src/parsing/derive/RaisedCorpseTest.cs`.
 
-## One row per life: what the engagement gap splits, and what a duration column owes (2026-10)
+## A You line needs a local player, and not out of whoever ran first
+
+`You hit X.`, `You begin casting Charm XVII.`, `You loot 3 platinum coins.` put **ConfigUtil.PlayerName** in the subject slot, and that
+name is load-bearing rather than cosmetic: `CastLineParser` builds its cast record only `if (!string.IsNullOrEmpty(player) …)`, so with an
+empty name a begin-casting line registers nothing and the charm confirm that pairs with it inside `CharmWindowPolicy.OwnerCastLookbackS`
+(6 s) has nothing to pair with — no `EvCharmStart`, therefore no R9 window, therefore a charmed mob that stays an enemy row while its own
+damage keeps landing. R0-local's claim of the operator and the looter on a loot line go the same way. Nothing throws; the capture is just
+quietly missing a person. In production the name always exists because `MainWindow` takes it from `eqlog_(Player)_(Server).txt` before the
+first line is read.
+
+The test harness has no such filename for most fixtures, so `PipelineHarness.RunCore` decides the local player once per capture:
+
+- a filename accepted by production's `FileUtil.ParseFileName` seeds its own player — that is the mechanism `IdentityRulesTest` writes
+  `eqlog_Feedbackone_Eqgate.txt` to use; the harness shares the same name, extension and archive-suffix grammar;
+- otherwise, if nothing has been said since the last capture (no name yet, an empty one, or still the name the harness itself stamped),
+  the capture gets `PipelineHarness.FixturePlayerName`, a word no fixture uses;
+- otherwise the standing name is one a test chose and it stands across unnamed captures, until the test changes or restores it.
+  Only a name actually assigned by the harness is marked as inherited; retaining an explicit choice must not consume it.
+  `PipelineHarness.SetFixturePlayerName` makes intent explicit even when the chosen name equals the last harness-written name.
+  A filename still names its own capture first. A class wanting *no* local player states it around its own classifications
+  (as `IncrementalClassificationTest` does, which builds facts directly), because an empty name is indistinguishable from "nobody spoke".
+
+The chosen name survives the run on purpose: rules read PlayerName while **classifying** too, and classification happens after the capture
+returns. It is re-decided at the next capture rather than restored afterwards, which is what makes "which pull owns this charm" independent
+of execution order.
+
+Why this is pinned and not just tidied: nine tests took their local player from whatever `eqlog_*` fixture happened to run earlier in the
+process, so the same suite read green from `dotnet test` and red in Visual Studio — class order is not identical between the two runners —
+and every one of them also failed when run alone, which is the only reproducible form. `PipelineHarnessPlayerNameTest` pins all three
+branches by reading what the **parser recorded** (the attacker on a `You hit …` row, and a charm window over a fixture parsed with nothing
+else in the process), not the field. It also pins production filename grammar and explicit names across consecutive captures, including
+reasserting the preceding filename's name; `EntityNameKeyTest` is the test whose question depends on it.
+
+## One row per life: what the engagement gap splits, and what a duration column owes
 
 Reported on `local/eqlog_Kizant_xegony.txt` (the pull is `Waxwork Abolishion`, with an h): the old fight list showed the
 boss twice — 46 s, then 163 s after the adds died — while the derived list showed it once for "5 minutes", one entry
@@ -6693,7 +6791,7 @@ Pinned by `ABossThatFadesWhileItsAddsDie_GetsOneRowPerLife`, `AQuarterMinuteOfQu
 (`EQLogParser.Wpf.Test`, Windows-only). `OurPetTest`'s fixture had to be re-timed: its pet swing was written a full
 minute after the raid's, which the old gap folded into one row and the new one correctly calls two encounters.
 
-## A death closes only a row that was alive when it happened (2026-10)
+## A death closes only a row that was alive when it happened
 
 `A corrupted egg`, same capture, 18:52:58. The grid listed the name twice with the same beginning: one row living until
 18:53:02 and the next line showing 0 seconds. Legacy lists that window once (18:52:58 → 18:53:02, 6,316,561 damage),
@@ -6727,7 +6825,7 @@ egg` nudged once before the raid moved on. Legacy prints the same shape (`A corr
 36.5M damage in both lists). The defect was never a short row; it was **two rows sharing one beginning**, which claimed a
 second mob existed when one was still alive.
 
-## A fight's duration counts its seconds inclusively (2026-10)
+## A fight's duration counts its seconds inclusively
 
 The fight list's duration column first shipped as `EndTime - BeginTime`, which is the span between two timestamps and
 not the number this product calls "how long it lasted". The convention lives in `TimeSegment.Total`:
@@ -6761,7 +6859,7 @@ Pinned by `DerivedFightTest` — `AFightInsideASingleSecondLivedOneSecond`,
 `TheDurationCellPrintsTheTooltipsNumber` (the same format expression the grid uses, asserted where it runs on Linux) and
 `ARowWithoutBoundsSaysNothing`; `DerivedFightRowsTest` in the Windows assembly covers the row end to end.
 
-## How often derivation re-runs (2026-10)
+## How often derivation re-runs
 
 Symptom reported from live use: a derived damage meter had to be coaxed open with **Re-derive**, and then sat showing
 the same numbers for the whole encounter, moving only when Re-derive was clicked again. The fight list had the same
@@ -6817,7 +6915,7 @@ not before the floor, the first pass does not wait for silence, a bulk load is l
 scales with measured cost (floor/middle/ceiling/NaN), and the ceiling stays under `FightManager.FightTimeout`. The
 session's feeding of the rule and the meter's open-nudge sit in the WPF assembly, so they build here and run on Windows.
 
-## Every expensive pass had a twin, and the twin answered nobody (2026-11)
+## Every expensive pass had a twin, and the twin answered nobody
 
 A field run over `eqlog_Kizant_xegony-10-06-26.txt` (6,917,6xx captured facts) read like this on **every single line**,
 including the
@@ -6881,7 +6979,7 @@ consecutive asks,
 which is what makes an unstamped pump ask free to drop). The engine itself is WPF-only, so the ledger and the rule carry the
 laws here.
 
-## A derive pass that starts where the last one stopped (2026-10)
+## A derive pass that starts where the last one stopped
 
 "How often derivation re-runs" above settled *when* a pass runs; this is about what a pass costs, because the two
 together decide how live the meter feels. The old meter never recomputed anything — `FightManager.ProcessRecord`
@@ -6984,7 +7082,7 @@ again matches one full pass; a gap landing exactly on the boundary matches; a ch
 closed in one pass; the index travels with its rows; and `GrowingAParsedLogOnePassAtATimeEndsAtTheSameFightList` replays
 each fixture log tick by tick against the single-pass list.
 
-### The classification half joins the carry (2026-11)
+### The classification half joins the carry
 
 The projection's 0–5 ms continued passes were being paced by a 378 ms from-zero classification replay every full tick —
 R9 charm windows, R15 heal breadth, R7's graph and friends re-walking 1.9 M facts to re-reach verdicts they had already
@@ -7008,7 +7106,33 @@ Measured on Incogitable (1,891,875 damage facts, 420,115 heals): from-zero class
 gate allows. `RegistrySeed` deliberately seeds at strength 8 — below R15/R18's Strong healer gate — so a registry name
 alone never launders other verdicts, and tests must reach for an evidence line (`EvJoinedRaid`), not `AddVerifiedPlayer`.
 
-## A mob's victim is never noise: how the tank board lost raiders (2026-10)
+### A published timeline is frozen: replacement, not editing, is what makes cross-thread reads safe
+
+Verdicts are asked from several threads at once — menu enables on the UI thread (`DeriveEngine.LiveKindAt`/`LiveOwnerOf`), the Names
+census, a "players only" grid inside a `Task.Run`, and the meter's suffix scans (`MeterArrivals.Read`, `OverlayPendingActivity`,
+`MeterActivityIndex`) deciding sides off `DerivedSnapshot.Timeline`. Published reads require no lock; `LiveKindAt` and `LiveOwnerOf`
+still take `SyncRoot` as defensive wrappers. The rule book's millions of lookups remain lock-free. What protects these reads is that
+**no published timeline has a writer**. Every expensive pass builds a fresh `EntityTimeline` (the carry holds rule *aggregates*, never
+a store), fills it while nothing else can reach it, calls `Freeze()`, and publishes it by reassignment into `_carriedTimeline` and the
+snapshot; cheap passes run no rule book at all. An operator's verdict follows the same law: it goes to `IdentityOverrideStore` and asks
+for a fresh pass, so it is replayed into the *next* timeline rather than edited into the one on screen — which is also why writing one
+would have cost a state-stamp move and a full rebuild anyway.
+
+`Freeze()` turns that from habit into a check: `SetIdentity`/`AddAffiliation` throw on a frozen instance, so an in-place fold fails with
+a stack instead of racing a reader's bucket walk or silently restamping under a carried pass. **The rule for new code is one sentence:
+never mutate a timeline you did not just build.** The tripwire is real — an "optimisation" that reruns the rules over the carried
+timeline to skip a re-seed looks free and is exactly the mutation these readers cannot see. `CaptureExportLens` is the legitimate
+pattern instead: `Copy()` the published store (the copy is writable) and answer per record against that.
+
+Pinned by `APublishedTimelineRefusesEveryVerdictWrite` (both mutators refused, digest unmoved, reads still answer),
+`FreezingThePublishedInstanceLeavesTheNextPassAndEveryCopyWritable`, and `ARuleBookFoldedIntoAPublishedTimelineFailsLoudly` (a
+`ClassificationRules.Apply` against a frozen store throws rather than reading as "the rules found nothing" — which needs the harness's
+`FailFastStages`, since `RunStage` normally swallows a stage throw). `EntityTimelineConcurrencyTest`'s racing test covers the one state
+where a writer and a foreign reader really can meet: an instance still under construction. Comments claiming that cheap passes *fold into
+the carried timeline* described a superseded shape of this class and were removed; readers of those comments concluded the meter scans
+were racing, and they were not.
+
+## A mob's victim is never noise: how the tank board lost raiders
 
 Asked whether legacy can be removed yet, the honest answer needed more than the fight-row count, so the boards bar was
 run over every local capture, 2022 to 2026. The first pass turned up a class of missing people on the tanking board, and
@@ -7085,10 +7209,12 @@ and the raid total sits inside +0.6 % everywhere. Legacy's removal is still gate
 rather than on parity: the overlay's show/reset path, the main grid's `ComputeStats`, and the line viewers (damage/heal/tank
 tables, `NpcStatsViewer`, `Timeline`), which are a separate workstream because the fact tables capture none of what they show.
 
-## A fight that is still going: porting the meter's show/reset rule (2026-10)
+## A fight that is still going: porting the meter's show/reset rule
 
-The damage meter's *numbers* moved to the derived engine first (`OverlayDamageFromMirror`, see "The meter reads the derived
-engine now"),
+**Historical measurements of the retired live-only opening rule.** Current opening and visibility use ingest receipts;
+see "Damage overlay: fight accounting and display retention" for the implemented contract.
+
+The damage meter's *numbers* moved to the derived engine first (see "The meter reads the derived engine"),
 and that left the meter in the worst intermediate state a surface can be in: it painted derived numbers while the three
 questions that decide whether you ever see them were still answered by `FightManager` —
 
@@ -7136,117 +7262,186 @@ windows both go quiet — longest such pause measured 121 s — and its resumpti
 and resumes deserves to get its meter back; the alternative (remembering every name ever seen) would never re-open for that
 pull at all.
 
-### Damage overlay: fight accounting and display retention (2026-11)
+### Damage overlay: fight accounting and display retention
 
-The authoritative comparison is tag **2.4.1**, `DamageOverlayStatsBuilder.ComputeOverlayDamageStats`:
-`if (!fight.Dead || mode > 0)`. **Mode zero excludes dead fights. Only timed modes carry their damage into the dead-fight
-bucket.**
-Earlier notes incorrectly attributed that bucket to On Kill and justified resetting only after a display timeout.
+**Goal:** show a stable account of current combat, and hide it after a quiet period. Source age first qualifies live activity;
+log timestamps determine the numbers, and elapsed time since receiving qualified damage determines visibility. The meter must not change damage, DPS, duration or RDPS
+merely because the PC clock advances. A timeout can end a timed accumulation, but its next record boundary is a captured
+ordinal, never a PC timestamp.
 
-The global-window repair in `827d5812` fixed an isolated kill's hide path but failed four review reproductions:
-- Kill A for 1,000 and hit B for 200 before the display timeout: it printed 1,200, not 200.
-- Hit B, then kill A: B could lose its totals after 13 seconds of silence, despite its full 30-second engagement allowance.
-- A one-shot already dead at the first derive failed the live-only opening gates.
-- A fresh completed board built from now-minus-30, then stored now-minus-8: its next refresh dropped from 1,000 to 500
-unchanged.
+Keep three decisions separate: **which NPC lives count**, **what their records calculate**, and **which columns are drawn**.
+Six-second RDPS, clock separation and independent column switches/shared layout are implemented; see the two feature sections below.
+*Only my fights* remains proposed. Column visibility changes neither accounting nor lifecycle; local-player scope must include
+everyone's admitted records for qualifying lives and exclude unrelated combat from receipt renewal as well as totals.
+Participation and scope-toggle choices remain open, not part of the implemented contract.
 
-`DamageOverlayLifecycle` now makes a transient row selection before `DerivedTotals.ForOverlay` materializes it:
+`DamageOverlayLifecycle` selects lives before `DamageMeterCalculation` counts them (`DerivedTotals.ForOverlay` is the reference):
 
 | mode/state | accounting/display |
 |---|---|
 | On Kill, active lives | Count each surviving life in full, subject only to explicit Reset. Drop completed lives immediately. |
-| On Kill, no active life | Show the latest completed life(s) for `CompletedDisplaySeconds = 8`; never combine them with a new pull. |
-| On Kill, no death seen | Keep each life through `FightProjection.EngagementGapS = 30`; its next post-gap row starts fresh. |
-| Timed mode | Keep completed lives inside the existing accumulation range until the configured quiet period. |
+| On Kill, no active life | Show the latest eligible completed life(s), with an eight-second deadline from the last eligible damage receipt; never combine them with a new pull. |
+| On Kill, no death seen | Keep each life through the 30-second engagement gap, measured against the eligible log-time edge; its next post-gap row starts fresh. |
+| Timed mode | Keep completed lives inside a sticky accumulation range until the configured quiet period. This is not a sliding last-N-seconds window. |
 
-A selection uses fight instances, never a name-only cache or one timestamp standing for every opponent. Rows with the same name
-can be different lives; another opponent's death cannot shorten a survivor's allowance. The final display is rebuilt from
-completed
-rows, so a one-shot is readable even when no live frame was ever painted. When multiple pulls complete between snapshots, the
-latest
-death supplies the final result (ties share it), not the sum of earlier killed mobs. This deterministic batch behavior also
-includes
-the killing blow, rather than freezing whichever pre-kill tick happened to paint last in the old UI. `DerivedFight.DeathTime`
-carries
-the observed death separately from last damage: display grace starts at death, not an invented timestamp based on the last
-exchange.
+A selection uses fight instances, not names: a later life with the same name must not inherit an earlier one's totals.
+Another opponent's death cannot shorten a survivor's allowance. With no survivors, the latest completed life supplies the final
+result (ties share it), including its killing blow even if no live frame was painted. `DerivedFight.DeathTime` records death
+separately from last damage. A death selects the result but does not renew its eight-second **damage-receipt** deadline.
 
-Opening uses the same wall-clock eligibility as selection, including recently completed one-shots. `LiveDamageObserved` advances
-by projected fact ordinal, not seconds: two arrivals within one log second are distinct, but death-only republishes do not
-repeatedly
-reopen the same finished board. Old-file snapshots cannot open an already expired overlay. `DerivedMeter` is only the app seam;
-there is no engine-selection setting or legacy fallback.
+**Accounting uses log time; visibility uses receipt time.** On Kill membership asks the newest accepted activity or an eligible life's
+death, never the PC clock. Accepted zero-amount attempts advance that edge even when their life has no positive damage to display;
+accepted activity after a completion suppresses its final result. Otherwise a new opponent's miss renews the receipt deadline while
+selection stays on an expired open or killed opponent. Pending and projected attempts obey the same rule: projection cannot bring back
+what pending activity already hid. Excluded outgoing damage still supplies no activity, and avoidance on the same live encounter still
+continues its existing amounts. `MeterAvoidanceLifecycleTest.cs` pins both directions, open/killed expiry, completion hold, the 30-second
+boundary, pending handoff, copied/cold lifecycle state and recovery on the new encounter's first positive hit.
+Second-resolution timestamps cannot settle a new attempt tied with a death. Projection therefore carries the slain fact's
+`DeathSequence` and the row's `LastSequence`; accepted activity carries its own sequence through both projected and pending scans.
+After choosing the latest completed life(s), On Kill rejects combat captured after their final completion boundary, including delayed
+records whose timestamps tie or precede the death. The boundary includes those lives' same-second killing blows, so deferred slain
+bucketing is unchanged and simultaneous final deaths can still share their result. An attempt before the final death cannot suppress
+that result. Only a captured slain event supplies death order: inferred charm completions keep their timestamp policy rather than
+inventing a sequence from the last hit. `MeterAvoidanceLifecycleTest.cs` pins those controls, and `FightProjectionIncrementTest` compares
+sequence markers across continued/full projections and the next life of the same name.
+Pending activity can also continue its own life through `ContinuedThrough`; pending membership has no clock-based expiration. Thus rows
+cannot disappear one at a time during silence. Timed modes retain their positive-damage eligibility edge and initialize their sticky
+start from **data edge minus mode**, not `now - mode`; this is not a sliding window. Reset cuts at the current captured **fact ordinal**, including within one log second. When a timed board expires, its next
+accumulation starts after the captured prefix, including pending records; no wall-clock timestamp becomes an accounting bound.
+`MeterFactInput.FirstOrdinal` carries that cut to both activity and amount walks, and the materialized reference supports the same cut.
+An ordinal-cut query also builds each life's auxiliary annotation span from its retained routed records, not the original life header:
+otherwise one post-Reset hit can carry an old death and its `X` back into Copy Parse. The compact calculation retains just the included
+minimum/maximum log times; the materialized reference takes the bounds from its surviving blocks. The shared special lead-in and death
+tail remain unchanged, and ordinary whole-life queries retain their original spans. `OrdinalCutAnnotationRangesUseOnlyTheRetainedRecords`
+pins Reset and timed expiry, both directions, continued/cold/reference results, and the untouched whole-life query.
+The app passes positive infinity as the upper accounting bound. An admitted accounting scope counts future-dated records immediately;
+neither totals nor RDPS waits for the PC clock. Such records cannot independently qualify as live activity.
 
-The lifecycle retains only session id and scalar reset bounds, never engines or rows. X-close/reopen preserves those bounds;
-a new capture discards them. Reset cuts at the click rather than reaching backwards; a display revision rejects a pre-reset
-build
-that finishes afterward. UI publication also checks capture ownership and whether its window closed. A null result hides the
-board;
-there is no unbounded fallback to previous stats. A missing damage/tanking half clears its old bars too.
+The initial timed bound must apply to **activity eligibility as well as amounts on the first publication**. `TrySelect` returns
+false when it first establishes that bound; the worker recaptures candidates and refreshes bounded activity before selecting again.
+Otherwise an old positive hit followed by a recent miss could admit a life on the first poll and lose it on the next, changing
+600 damage from five seconds / 120 DPS to one second / 600 DPS during silence. Candidate inspection still never expires or resets
+an accumulation. `TimedInitialBoundIsAppliedBeforeTheFirstPublication` pins first opening, Reset and timed expiry in both directions.
 
-`DamageOverlayLifecycleTest` runs projection, row selection and real overlay totals together: consecutive/overlapping kills,
-12-second lulls, the 30-second boundary, repeated names, same-second arrivals, one-shots, unchanged refreshes, final display
-timing,
-Reset, capture swaps, X-reopen and timed modes. `FreshSixtySecondMeterMatchesSelectingFiveFightsAcrossSeveralMinutes` pins
-the timed
-mode's accounting goal: from a fresh capture, five killed mobs over several minutes, with every quiet gap shorter than 60
-seconds,
-must equal selecting those five fight-list rows. It asserts total damage, combat seconds and DPS, both aggregate and per player;
-polling the final result cannot change DPS by adding idle wall time. WPF popup/hide behavior still needs Windows
-verification; see
-ReleaseChecklist → "Damage overlay checks on Windows".
+**Receipt is recorded at ingest, not at recount.** `CombatCapture` notifies the host after a damage fact is published. `MeterArrivals`
+records its ordinal range against `Stopwatch` time, grouped into millisecond batches with sub-millisecond truncation and the same source-age qualification. **Unexamined batches
+never age out.** A stalled or disabled worker may accumulate metadata only while new damage facts arrive; a quiet log and duplicate notifications
+add nothing. After successful verification, batches older than 120 seconds relative to the newest receipt fold into a compact checkpoint
+before retirement. The recent window exceeds every supported mode (configuration accepts 1–100 seconds); long-backlog list capacity is released too.
+Workers inspect each lane's first and last eligible ordinal in a batch using the same admission predicate as pending combat. `MeterReceiptRuns` keeps the
+latest source-qualified eligible receipt and one reset cut for each supported quiet period for Damage, Tanking and Both, so changing modes or panels needs no discarded receipt history. A gap must be strictly
+longer than the mode to cut; the cut keeps the first eligible ordinal after that gap, not merely the newest hit. The summaries copy with each read,
+and only a completed, still-current read acknowledges its prefix. Cancellation, failure and input invalidation retire nothing.
+Filters/verdict changes recheck the retained window from the historical checkpoint using original receipt times, not the time of reconsideration.
+Already-retired history keeps its verified boundaries; it cannot be retrospectively reclassified from discarded receipt metadata. Polling,
+rebuilding, and reopening never restamp receipt. NPC-only noise and excluded outgoing damage do not renew it; incoming damage and accepted avoidance
+remain eligible. The derive pass's auto-open verification is optional: `DeriveEngine.VerifyMeterArrival` returns no activity on a
+scan failure without withholding snapshot publication or entering the derive retry ladder. It logs once per exception kind through
+`RepeatCap`; the next pass can retry the same unacknowledged prefix. `DamageMeterConfigState.LoadResetMode` is the shared 0–100
+validator for the window, derive auto-open and windowless activity query; invalid values read as On Kill without rewriting the setting.
+`MeterReceiptVerificationTest` in the Windows-only assembly pins the shared reader and scan failure/recovery boundary.
+`BeginRead` copies only unchecked receipt-batch metadata under the receipt lock; `Read.Complete` decodes and checks a fixed
+ordinal prefix outside both that lock and the capture gate, with cancellation checks between bounded batches. Ingest can extend even
+the copied read's last millisecond batch without changing its question. Completion acknowledges only that prefix; an older read cannot
+overwrite a newer read's publication, changed verdict/filter inputs invalidate the read, and receipts outside the recent window cannot be published fresh.
+An expiry cuts at the **checked** captured prefix, including its pending records, never damage appended while that scan ran.
+The lifecycle checkpoint also carries a receipt-time high-water mark for its panel choice. **Display and retirement ask different
+receipts:** the current eligible receipt sets the display deadline, while the high-water mark prevents an exclusion from expiring the
+accumulation early. Both `None` and an older surviving receipt may hide the board, but neither rewinds its retirement clock. Restoring
+an exclusion within the original deadline may restore its amounts without restamping receipt; after that deadline, the checked prefix
+still retires. Narrowing or replacing panels starts that protection from the newly selected lanes' own receipt, never a hidden lane's
+newer one; widening preserves it because every previously enabled lane is still enabled. Already-applied ordinal cuts remain forward-only. Invalidated receipt inputs are retried before selection rather than mistaken for a
+verified absence. `PrunedReceiptsStillRetireTheExpiredTimedAccumulation` pins pruning and checkpoint copy;
+`AFilterHidingEveryReceiptDoesNotPretendTheTimedBoardExpired` and `MeterExclusionLifecycleTest.cs` pin complete/partial exclusions,
+copied single-panel state, the unchanged display timeout, eventual retirement, recovery and panel narrowing/widening. `MeterArrivalsTest` pins read interleavings without timing probes;
+`ExpiryCannotDiscardAReceiptThatArrivedWhileThePreviousPrefixWasBeingChecked` and `PruningDuringAReceiptReadCannotRetireTheNewerReceipt`
+pin the accounting cutoff with both retained and pruned receipts. This is an ingest-lock ownership guarantee, not an end-to-end raid timing claim.
+
+The dispatcher reads the last worker-verified receipt without waiting on a scan. Its existing presentation lease still expires while a
+worker is blocked, and late results must be fresh before painting.
+
+**Live qualification is not a quiet clock.** At ingest, compare each damage sentence's log timestamp with local wall time. A future timestamp
+or an age beyond the selected mode (30 seconds for On Kill) cannot activate or renew the live meter. All facts still enter the capture;
+source freshness is neither a parsing filter nor an accounting bound. Each batch retains the ceiling of its source age, and each mode's
+receipt run admits only qualifying batches. Data older than every supported mode and future data advance the captured watermark without
+creating a receipt batch; later live data cannot absorb those skipped ordinals into its receipt. Changing modes, filters, verdicts or waiting
+for a worker never requalifies a timestamp against a later wall clock. The published immutable runs answer both mode and panel without a scan.
+A timed accumulation must not establish its initial log-time bound until a qualified receipt exists: opening over stale history otherwise
+anchors the next live board to that history. `MeterSourceFreshnessTest` pins two days of history ending 14 hours ago, both directions,
+catch-up into live combat, no historical renewal, exact age boundaries, future input, mode-specific gaps, mixed millisecond batches and retirement.
+
+After qualification, visibility deadlines are **receipt + mode**, **receipt + 30** for ongoing On Kill, or **receipt + 8** for a completed-only result.
+Eight seconds of ingest lag therefore do not consume eight seconds of a ten-second timeout. Clock separation removed the source-age gate
+along with the unwanted wall-time accounting bounds, which let historical imports open the live meter; the two decisions must remain separate.
+Heal, cast, taunt, death, filter and re-derive events never manufacture a damage receipt.
+`MeterClockSeparationTest`, `MeterArrivalsTest`, and `PendingMembershipStaysFrozenUntilTheWholeBoardExpires` pin the independent receipt deadlines.
+
+Opening uses receipt freshness. `LiveDamageObserved` advances by the newest eligible received ordinal: two arrivals within one log
+second are distinct, while a death-only republish or a rebuild spends no new receipt. Enabling with an empty/stale verified cache asks
+for a full pass before attempting to open: verification is skipped while disabled, and an unchanged capture otherwise owes no pass.
+That worker verifies the original receipts; enabling never restamps them. `EnablingNeedsWorkerVerificationBeforeAnUnobservedReceiptCanOpenTheMeter`
+pins the cache/freshness contract; the actual Enable gesture is a Windows release check. `DerivedMeter` is only the app seam; there is no
+engine-selection setting or legacy fallback.
+
+The lifecycle retains only session id, scalar reset bounds, the established RDPS log-time edge, panel choice and receipt high-water mark, never engines or rows. X-close/reopen preserves those values;
+a new capture discards them. Reset cuts at the click; display/capture revisions reject obsolete worker results. A null answer
+hides the board rather than retaining old stats indefinitely, and a missing damage/tanking half clears its old bars.
+
+`DamageOverlayLifecycleTest` covers kills, overlapping lives, gaps, repeated names, one-shots, Reset, capture swaps and reopen.
+Its timed-mode example selects five killed mobs over several minutes with every quiet gap shorter than 60 seconds: a fresh
+60-second meter must match selecting those five fight-list rows in total damage, combat seconds and DPS. Polling cannot add
+idle wall time to the denominator. Windows popup/hide verification remains in ReleaseChecklist → "Damage overlay checks on Windows".
 
 Short timed resets keep their legacy duration: the operator confirmed in 2.4.1 that three seconds without an attack hides and
-resets the meter. There is no extra timed display grace. A separate regression came from projection lag: attacks at seconds 0
+resets the meter. There is no extra timed display grace. **A quiet gap resets even if no poll saw it.** Receipt at 100 followed by 110
+with a three-second mode cuts before the latter run, whether the window was closed, the worker was stalled, or this is its first opening.
+The lifecycle applies that ordinal cut and refreshes bounded activity before counting. Unlike an initial log-time slice, an observed receipt-run
+boundary retains the entire new run, even when it already spans longer than the mode; equal or backwards log timestamps cannot blur the cut.
+An explicit Reset or an already-observed expiry remains a forward-only floor. `MeterQuietGapTest.cs` covers missed gaps in both directions,
+first opening, same-second records, exact threshold equality, long uninterrupted backlogs, and pending new damage. `MeterArrivalsTest` pins
+retention/compaction, per-mode history, quiet logs, filter reconsideration, partial-batch growth and cancelled retries.
+A separate regression came from projection lag: attacks at seconds 0
 and 2, followed by a tick at 3.1 still reading the first snapshot, advanced the reset boundary past the already captured second
 attack. Each snapshot stamps its processed damage count under the ingest gate. Its `OverlayPendingActivity` walks only the
 unprojected suffix on the meter worker, once per ordinal, and uses the **same admission rule as projection**
 (`FightProjection.TryCombatSides`) against that snapshot's timeline. Known NPC-on-NPC noise, self damage and friendly fire buy
-no time; unknown names remain eligible, so a new opponent need not already have a row. The initial all-damage timestamp hint
-could keep a stale board visible indefinitely under NPC-only noise; it is gone, including its ingest-path write. The replacement
-is a temporary activity hint, never extra records or a different accounting range. Fresh snapshots retire it; a changed timeline
-stamp rechecks the suffix. This uses the last available verdicts, not a second classifier: later classification can revise them.
+no time; unknown names remain eligible, so a new opponent need not already have a row. These data-continuity hints carry no receipt
+clock and cannot prolong visibility by being reread. Fresh snapshots retire them; a changed timeline stamp rechecks the suffix.
+This uses the last available verdicts, not a second classifier: later classification can revise them.
+A receipt read may outrun the preceding pending scan. Before selection, the worker requires pending coverage through the newest
+**eligible** receipt ordinal and matching timeline/exclusions; irrelevant newer noise does not require another scan. Projected activity
+must still answer the current exclusions too, and exclusions are checked again after counting. An uncovered or invalidated question
+returns Deferred through the existing bounded retry gate, never a freshly renewed old result or an expiry cut. `MeterPendingPrefixTest`
+pins an arrival between scans, noise that needs no retry, and unchanged-count exclusion changes.
 
 On Kill applies pending activity **per existing open life**, using sorted activity chains joined at the same 30-second gap as
 projection. Hits at 29 and 58 can continue a life last seen at zero even with a stalled snapshot; a first hit at 31 cannot. A
-different
-opponent cannot extend it either, and completed lives keep their original eight-second display hold. Opening/closing eligibility
-reads the same cached hint without blocking the UI on the worker's suffix walk. An empty post-Reset board can therefore wait for
-pending combat without closing prematurely, but the hint alone never manufactures totals. Heal/evidence/death arrivals buy no
-time.
+different opponent cannot bridge its data gap either. Receipt of pending combat can renew the overlay's visibility, but cannot
+manufacture totals; the existing rows remain unchanged until projection incorporates those records. A new pending pull never revives
+a completed pull's result. An empty post-Reset board may wait for pending combat. Heal/evidence/death arrivals buy no time.
 
-There is **no arbitrary grace cap**: capping a delayed projection can again cut away legitimate captured attacks. Genuine
-silence
-still expires at the selected duration. Headless tests cover stalled NPC noise, prolonged genuine pending combat, new
-unclassified
-opponents, out-of-order chains, separate lives, incoming damage, spell effects, verdict changes, pending deaths and explicit
-Reset.
-The snapshot count and pending-hint replacement have coverage in the Windows-only assembly; those tests still need execution
-there.
+There is no arbitrary projection grace cap: it could cut away legitimate captured attacks. Genuine receipt silence still
+expires at the selected duration. Headless tests cover pending chains, noise, incoming damage, verdict changes, deaths and Reset;
+snapshot-watermark/pending-handoff tests in the WPF assembly still need Windows execution.
 
-Review cleanup removed the unused `LiveFights` implementation and its test-only census (the historical measurements below
-remain),
-`FactStart`, `LastUpdateTicks`, and the overlay calculation's unused heal parameter. The session publication guard stays:
-dropping it
-could let an old worker publish a closed capture's stats. Legacy On Kill did **not** accumulate dead-fight totals; that
-branch ran only
-in timed modes. Its retained last display is not cumulative accounting. Cold-chunk retention remains unchanged:
-`RetainDecoded()`
-can reduce repeated decoding, but is not required for reference safety and would need measurement before widening retained
-memory.
+**Why life selection matters.** Tag 2.4.1 excluded dead fights in On Kill (`if (!fight.Dead || mode > 0)`); its dead-fight bucket
+belonged to timed modes. The global-window repair in `827d5812` lost that distinction: kill A for 1,000 then hit B for 200
+printed 1,200; killing A could remove B after 13 seconds instead of its 30-second allowance; a completed one-shot could fail
+to open; and inconsistent initial/retained bounds changed an unchanged result from 1,000 to 500. Per-life selection repairs
+these cases without making a completed presentation part of the next pull's accounting.
 
-`LiveDamageObserved` is static because MainWindow's subscription outlives captures. It is raised after `Derived` under its own
-exception guard, so a failing UI subscriber cannot make a successful derive look broken. Opening requests a fresh derive;
-closing
-unsubscribes the pane without discarding the scalar lifecycle state.
+`LiveDamageObserved` is static because MainWindow's subscription outlives captures, and is raised after `Derived` under its own
+exception guard. Opening requests a fresh derive; closing unsubscribes without discarding scalar lifecycle state. Cold-chunk
+retention is unchanged: `RetainDecoded()` is not required for reference safety and would need measurement before widening memory.
 
 ### Damage meter presentation expiry and ownership (issue #416)
 
 The report describes a toolbar without bars lingering after a mission, with a ten-second reset. Checking only DPS does
-not establish that Tank was inactive; the two panels share activity eligibility. The code nevertheless had independent
+not establish that Tank was inactive; with Both enabled, either panel earns activity. The code nevertheless had independent
 failure paths worth fixing, without claiming which one the report exercised.
 
-`DamageOverlayScope.ExpiresAt` is a fixed deadline from accepted activity (or the final death's eight-second hold).
+`DamageOverlayScope.ExpiresAt` is a monotonic deadline from the last accepted damage receipt, using the mode's timeout (eight seconds
+for a completed-only On Kill result). Log timestamps never enter this deadline.
 `MeterPresentationState` publishes that scalar with capture/display revisions before counting. The existing dispatcher
 timer checks it even while `MeterRefreshGate` is occupied; a late result must pass the same freshness check before painting.
 A stalled worker can therefore lose its stale presentation instead of holding it indefinitely. If fresh combat cannot be
@@ -7256,17 +7451,16 @@ through a blocked dispatcher or stop-the-world GC. No extra timer or arbitrary e
 `MeterActivityIndex` reads routed, bounded ordinal prefixes on the worker, outside the capture gate, and retains only
 per-life cursors, positive-damage eligibility and latest accepted log time. Outgoing activity obeys the same damage-type
 exclusions as the displayed damage calculation; incoming activity remains unfiltered, matching Tank accounting. Accepted
-avoidance outcomes can continue an encounter that has damage. Healing, casts, taunts and timed-mode death events do not
-renew that clock. Class selection is still a display filter, not a change in combat accounting, and genuine Tank activity
-can still keep a DPS-selected meter alive. Pending activity applies the same outgoing filter and revisits its suffix when
+avoidance outcomes can continue an encounter that has damage. Healing, casts, taunts and death events do not
+renew the damage receipt. Class selection is still a display filter, not a change in combat accounting, and genuine Tank activity
+can still keep a DPS-selected meter alive when Both panels are enabled, never when it is Damage-only. Pending activity applies the same outgoing filter and revisits its suffix when
 filters change. A replacement projection can reuse scalar activity only after comparing both routed ordinal prefixes;
 matching counts alone is insufficient. This does not change the fight-list grouping or summary-board denominators.
 
-On Kill's activity scan takes a **superset**: active lives and every recent completed life, before exclusions decide
-which can display. Selecting active lives or only the latest death first let excluded-only damage suppress a valid
+On Kill's activity scan takes a **superset**: every post-reset life, before exclusions decide the data edge and which lives can display. Selecting active lives or only the latest death first let excluded-only damage suppress a valid
 completion. The regression kills A with included damage, then hits or kills B with excluded Bane damage: A keeps its
-original eight-second deadline, while included damage to B still replaces A immediately. Candidate selection works on
-a scalar lifecycle copy and never advances the actual reset boundary.
+original receipt-based eight-second deadline, while included damage to B still replaces A immediately. Candidate selection never
+advances the reset boundary.
 
 `HideMeterPresentation` hides the toolbar and body before clearing bars. Failed painting invalidates its deadline and
 uses this cleanup path; the timer remains available for recovery. Zero-total percentage calculations return zero rather
@@ -7282,10 +7476,289 @@ Headless regression coverage exercises a busy refresh gate with an expired deadl
 failure and recovery, queued-close replacement, direct-close notifications, filtered outgoing versus incoming activity,
 pending filter changes, avoidance, reset/backward clocks, future records and final-death grace. Actual WPF popup/render
 behavior remains a Windows release gate. Toolbar label sizing is covered separately under "Damage meter setup window".
-Linux validation after the branch-review fixes: **2,397 headless tests passed, six skipped**; full no-incremental solution build reported **zero**
-warning/error diagnostics, and the explicit WPF-test build succeeded. The WPF suite was not executed on Linux.
 
-### Incremental damage meter: compact accounting, paired publication (2026-11)
+### Six-second RDPS: per-life buckets beside the meter's own amounts
+
+**Goal:** show the same admitted damage as encounter DPS, measured over the latest six logged seconds instead of the encounter.
+RDPS is informational, not a ranking mode. It does not change membership, totals, encounter DPS, duration, sorting, bars,
+percentages or Copy Parse; boards, charts and exports do not read it. Its column sits between DPS and `Sec` and hides like any other
+column (see "Damage meter column switches" below); the rate itself keeps being calculated while its column is off.
+
+```text
+edge = max(previous established edge, floor(newest LastTime among the lives counted))
+recentDamage = eligible damage in log seconds [edge - 5, edge], inclusive
+RDPS = recentDamage / 6
+```
+
+Include the current partly elapsed second and divide by six from the first hit, not by active seconds or hit count. That division is
+`StatsUtil.RateOverWholeSeconds` — integer, like every other six-second window (`StatsUtil.RatePerSecond` is for a rate over an elapsed
+duration and rounds through a double). The two arms differ on purpose: RDPS stays exact past 2^53, which
+`WideAmountsAreNeverRoundedThroughFloatingPoint` pins, and a window holding under one damage per logged second prints `0`. A 60,000
+hit at log second 100 contributes 10,000 while the edge is 100–105, then zero at edge 106. **With no new data the edge does not
+move:** RDPS, like encounter DPS, holds its value until new data changes it or the lifecycle hides the board. If other players
+continue fighting, their data advances the shared edge and an idle player's buckets age out. Zero prints as `0`.
+
+Neither RDPS nor encounter accounting reads a build instant. The host supplies `input.To = positive infinity`; explicit
+reference queries may supply finite **log-time** bounds. Delayed records contribute only on their own second labels; already
+captured future-dated records count immediately. `MeterDirectionRates.WindowSecond` identifies the log second behind the result.
+A wall-time window would understate a steady stream by roughly `(6 − lag) / 6` (two-thirds at two seconds of lag) and show zero
+after a six-second ingest stall. Receipt-based **visibility**, described above, avoids this without changing the arithmetic.
+
+**Implementation invariants.** `MeterRecentWindow` belongs to each `MeterDirectionSlice`, alongside that life's encounter amounts:
+- Keep six absolute-second-labelled buckets per direction, keyed by the same actor/owner pair as encounter accounting. Modulo six
+  selects storage, not time identity; .NET-epoch seconds need a wide stamp. Refuse out-of-window facts before touching a slot,
+  replace stale colliding labels, and keep in-window late arrivals on their own labels.
+- Advance every retained life before reading, even when its cursor is unchanged: another life may have moved the common edge.
+  Summation independently checks `[edge - 5, edge]`. A repeated life in one input is counted only once.
+- The lifecycle owns the forward-only edge and copies it through `MeterLifecycleCheckpoint`; `DamageOverlayScope.WindowSecond`
+  reaches `MeterFactInput` beside the selected lives. Removing a life, rebuilding accounting, changing a filter or reopening a window
+  cannot rewind it. Explicit Reset, timed expiry and a new capture clear it. Death does not advance it. Projection's `LastTime` covers
+  both directions, so in-order facts do not lie ahead of their own captured header. An unusable edge contributes nothing.
+  Standalone bounded calculation queries derive their edge from their captured headers and upper log-time bound; a changed question
+  that moves that edge backwards rebuilds buckets rather than trying to recover amounts already aged out.
+- Removing a life removes its rolling contribution too. Compatible projection rebinding retains its buckets; incompatible state
+  reconstructs from facts. Reset applies the same captured-ordinal cut to encounter and rolling amounts. Cancellation/failure
+  discards partial state. No warm-up or second history reader is needed.
+- Resolve recent amounts through `MeterDirectionTotals`' existing row resolver and log-time ownership. Sum across lives and pets
+  **before** integer division; Tank keeps each defender separate. The direction total uses the complete eligible scope, not rounded
+  or visible rows. Unresolved amounts are counted per build as `RecentUnresolved`/`rdpsUnresolved=`, not silently dropped.
+- Publish detached `MeterDirectionRates` on `DamageOverlayStats`, not general-purpose `PlayerStats`. The UI only formats them,
+  on the existing one-second serialized refresh. There is no new timer or RDPS-specific timeout.
+
+Only aggregated amounts are retained: no records, hit lists, histograms or chart rows. Bucket dictionaries are lazy and reused;
+six seconds bounds logical entries per retained life, **not allocated bytes**, because dictionary capacity keeps its high-water
+mark. Publication allocates temporary sum/rate dictionaries and a detached result; existing bucket keys need no per-hit object.
+
+**Current geometry.** Fixed numeric widths leave the remaining space to names/icons. `MinimumWindowWidth` adds a 96-DIP
+name/icon allowance (`NameAreaMinWidthDip`) to that font's numeric block; it replaces the markup's initial 300-DIP minimum.
+These are row-only floors (also used in Setup); the live header additionally reserves its measured toolbar width as described below.
+
+| Font (pt) | RDPS/SDPS each (DIP) | Numeric block (DIP) | Window minimum (DIP) |
+|---|---:|---:|---:|
+| 10 | 46 | 272 | 368 |
+| 12 | 52 | 314 | 410 |
+| 14 | 60 | 360 | 456 |
+| 16 | 66 | 392 | 488 |
+
+Before RDPS, numerics already consumed 210 DIP at 12 pt and 260 at 16 pt against the old 250-DIP floor. A flat 300-DIP floor
+with RDPS left no name space at 14 pt and overflowed by 26 at 16 pt. A saved narrow window widens to its font's minimum;
+Save persists the coerced width, and nothing auto-shrinks. Those figures are the **all columns visible** case: the floor is built
+from the visible set, so a meter showing `Damage`/`DPS`/`Sec` (the shipped default) floors at 165 + 96 = **261 DIP** at 12 pt.
+The live header may raise those floors to keep its toolbar beside the numbers. Header alignment remains a Windows gate,
+and switching columns is its own section below.
+
+**An old hit cannot become recent when another opponent dies.** With A's 600 at second 100 and B's 600 at 110, withdrawing B
+leaves the established edge at 110: A still contributes zero RDPS. Keeping that edge only in the disposable calculator once made
+reopening reconstruct edge 100 and revive A's old 600. The lifecycle now supplies the same edge to cold and continued calculations.
+`WithdrawingTheNewestLifeCannotReviveOlderDamageAfterAColdBuildOrReopen` pins both directions, lifecycle copy, calculator clearing,
+filter recount and explicit Reset; encounter totals remain unchanged.
+
+**Known separate defect:** a fact earlier than a row's first sighting can invert its activity span: the full-build reference
+returned **−1 seconds**, versus **0 seconds / DPS `long.MaxValue`** in the meter. The result was byte-identical with RDPS stashed.
+`MeterDirectionSlice.Add` moves `Last` backwards without moving `MeterActivity.Begin` back. Fixing both calculation paths is
+separate work; the RDPS late-arrival test stays inside the already-seen span and does not claim this case is fixed.
+
+**Isolated measurement, not a raid result:** a scratch copy of `MeterRecentWindow` measured in-window `Add` at **≈50 ns / 0 B**,
+out-of-window refusal at **≈1.5 ns / 0 B**, and summation over 40 lives × 24 participants at **≈115 µs** per direction
+(single-digit µs for one to three lives). Advance is six comparisons per life/direction. No probe code was retained.
+Representative end-to-end busy-raid time and allocation still need measurement; these figures establish no whole-meter claim.
+
+**Clock-separation review found three counterexamples before the fix.** With an already-captured future-dated hit, advancing only the PC
+clock changed RDPS **100 → 0** through the upper-bound clamp. First opening over identical damage at different instants changed a timed
+board's total **1,000 → 500** through `now - mode`. A pending continuation aged out against wall time and changed a still-visible total
+**700 → 200** without another line arriving. These were not acceptable exceptions: the upper clock ceiling is removed, timed initial
+bounds use data time, and pending membership no longer expires against a clock. The fourth mismatch was visibility: age of a log timestamp
+is not time since receipt. `MeterArrivals` now records ingest receipt separately and renews only the overlay deadline, never RDPS.
+Tests independently vary log time and receipt time, keep every published number stable through silence, and verify expiration, late arrivals,
+same-second Reset, filter reconsideration and rebuilds. Zero still prints as `0`: it means no damage in the six logged seconds.
+`_recentUnresolved` remains answered per build, including early returns, so Debug cannot repeat another build's omitted amount.
+
+**Pinned by** `MeterRecentWindowTest` (bucket boundaries, collisions, log-time aging), `DamageMeterRdpsTest`
+(incremental/reference encounter equivalence and cold-rebuild rates: lag, frozen silence, wide amounts, owner/pet and
+cross-life sums, Tank attribution, life removal, filter changes), and `MeterClockSeparationTest` plus `MeterArrivalsTest`
+(accounting versus receipt deadlines). Rendering, delayed-worker behavior and header alignment remain Windows gates in
+`docs/ReleaseChecklist.md`.
+
+### Which panels the meter shows decides what may wake it and what is worth displaying
+
+The operator picks which panels a damage meter has — Damage, Tanking or Both. `OverlayMeterPanels` stores the `MeterPanels` flags
+value (1, 2, 3) and **`None` is not storable**: `DamageMeterConfigState.Load()` folds an absent key, junk, or a hand-written 0 back to
+Both, and no surface offers "none" — a meter cannot be configured into having no tabs. One word answers two questions, which is the
+point of it: which tabs exist, and **which activity may open the window or keep it on screen**. A player who only watches damage must
+not have the overlay pop for a pull where nobody hit anything but the tank, and a tank's window must not hold the screen because the
+raid's damage board is busy. Both interlocks read the same receipts: the opening announcement in `DeriveEngine` asks with the saved
+panels (that announcement *is* an open) and `DamageOverlayWindow` asks with its own `_panels`. Setup previews sample data, not a live
+activity decision; the saved choice governs the next live meter. Rebuilding its sample bars seeds both pools even when one is hidden;
+changing panels can reveal that pool without another rebuild. The row-count-then-panel-switch regression stays a Windows release gate.
+
+A panel is EARNED per fact, in `MeterActivityIndex.AcceptsPending`, using projection's admission, `CombatAnchor` and `CombatTarget`:
+`RaidSide` earns Tanking without outgoing exclusions; `AtOwner` earns Damage only when the exclusion filter allows it; `Neither` earns
+nothing. `MeterDamageFilter.Allows` is direction-blind — it asks only what KIND of damage a fact is — so passing it is not proof of
+output, and being hit must never count as damage we did. Incoming stays exempt from those exclusions: a bane hit landing on us moves
+the Tanking lane even with bane damage switched off. `MeterArrivalsTest` pins that exemption. Unknown/Unknown exchanges share the
+same name-shape anchor decision without claiming either name's identity: a spaced attacker hitting a letters-only defender earns
+Tanking, not Damage, even before classification catches up. `MeterUnplacedReceiptsTest` compares the receipt lane to the projected
+board, pins incoming exclusions and the Damage-only quiet cut, and keeps both names Unknown throughout.
+
+**Not incoming does not mean outgoing.** A charmed player, pet or mercenary striking an NPC can own an encounter row while the hit
+is routed to `Neither`; it contributes to neither board and may supply neither a receipt nor pending continuity. Otherwise that
+uncounted combat can extend a still-visible board or reopen its old amounts after expiry. `MeterRoutingTest` pins receipt/board
+agreement across identity kinds, charm pairs, name shapes and source-less spell flags, plus empty opening, unchanged deadlines,
+missed quiet-gap cuts, expired/cold/reopened scopes and recovery on real combat in On Kill and timed modes. Sharing the anchor and
+target decisions keeps this rule on the same side of the projection seam as the board's actual routing.
+
+Panel choice is answered **at read time** without rescanning facts. `MeterReceiptRuns` caches the newest receipt AND per-mode quiet-gap cuts
+for Damage, Tanking and Both. Hidden activity must not bridge a selected lane's quiet gap: outgoing at 100 and 108 with incoming at
+102/104/106 resets a three-second Damage-only accumulation, even if no worker observed the expiry; Both stays continuous. Each lane keeps
+its own first/last ordinal inside a mixed millisecond batch. Copies and retired-history checkpoints preserve all three summaries.
+`MeterPanelReceiptsTest` pins missed gaps, exact-threshold equality, mixed/partial batches and compaction; `MeterQuietGapTest` pins the
+resulting amounts. Retention still gates on the union (`RetainedAnswer` compares `runs.Last` against the newest batch), but retention is
+not a quiet-gap cut: the requested lane's receipt still supplies its own visibility deadline.
+
+**Three questions, three answers, and none of them is "switch the operator to another tab".** *Which tabs exist* is the setting alone: Both
+shows DPS and Tanking whether or not either has rows, and a one-panel choice collapses the absent tab and the divider between the two
+(`SizeToContent` plus `ContentSizeChanged`, which the window already follows). *What is drawn* is the tab that was picked, or the single half
+a one-sided meter has — `DrawsDamagePanel(panels, pickedTab)`. Tab clicks change the live selection. Narrowing the panel choice selects the
+survivor in staged state; widening keeps that selection. Preview writes neither `OverlayMeterPanels` nor `OverlayShowingDps`: Cancel
+preserves both saved choices, while Save persists the preview's panel choice and selected tab. An operator
+who wanted tanking clicked Tanking; a board that turns itself over because the other half got busy is the app deciding for them, which they
+rejected in as many words. *Whether the window exists at all* is entries: `AnyPanelHasEntries(board, board, panels)` — at least one half the
+operator ENABLED has a board that lists anyone. So Both with an empty visible half and a busy hidden half keeps the meter up (the tab is right
+there), while a Damage-only meter with nothing in it has no reason to be on screen and asks the receipts whether to close. An entry is any listed
+row — a player, an ``X +Pets`` group, a mercenary, or the source-less Reverse DS bucket: what matters is that something would be listed, not that
+it is a person or that it opened a fight-list row.
+
+**The class filter is a lens, not a fact, so it may not decide whether the window exists.** `HasRowEntries` reads the builder's ranked list
+*before* the filter and the row cap; only the bars and the nudge counts (`LoadStats`) obey the lens. Metering to a class that has done nothing
+yet therefore leaves the meter standing with an empty board, as it did for years, instead of deleting the window over somebody who forgot the
+filter was on: an empty board they can clear is information, while no meter at all reads as a broken overlay. This is the one place where "empty
+means no window" was wrong precisely because the emptiness was *chosen* rather than measured — and it is why the two counts are kept apart instead
+of reusing `LoadStats`' answer for both questions.
+
+**A half that is busy while you are looking at the other one nudges its tab, and does nothing else.** `SetTabAttention` on the window owns
+the rhythm — ONE `DispatcherTimer` with TWO intervals, **1 s green then 4.5 s normal** (`AttentionHoldMs` / `AttentionWaitMs`), a **5.5 s**
+start-to-start cycle. The first pulse starts immediately. Dispatcher work may delay either interval; these are not real-time deadlines.
+It paints through the toolbar's `SetTabAttention`, which colours the tab that is *not* on screen with `EQGoodForegroundBrush` read **by key**
+(the green the title bar's finished-loading message uses) rather than a cached brush. It arms only when the drawn half has no rows and an
+enabled hidden half does. Hide and switching to the populated tab clear it immediately; newly arriving visible rows clear it when the next
+board answer paints (normally the one-second refresh plus build time, longer while builds defer). Not a board switch or a standing highlight.
+The toolbar retains the current phase across repaints and reselecting the same tab; changing tabs clears that phase before repainting.
+A toolbar created after the first board paint inherits the meter's current phase, so its deferred creation cannot swallow the first pulse.
+`NeedsTabAttention` owns the full panel/selection/lane mapping, pinned by `MeterPanelChoiceTest`; actual colour and rhythm remain Windows gates
+in `ReleaseChecklist.md`. If the theme's green reads too dim against the meter background, report it rather than inventing a second green.
+
+**A meter that opens itself is not visible until an enabled, unfiltered board has a row.** `MainWindow.OpenDamageOverlayIfEnabled` shows such a window at
+opacity 0 and calls `RevealOnFirstContent()`; the window raises its own opacity on the first `ApplyMeterUpdateCore` that answers
+`AnyPanelHasEntries`. This exists because the open decision is made from activity, and the first build lands afterwards — revealing on creation showed
+an empty frame for up to a second, which is the exact thing this rule forbids. The request stays armed if the answer is empty (the window is
+collapsed by `HideMeterPresentation`, so it is inert rather than ghost-visible and clickable), meaning the meter appears on the next real pull
+without anyone reopening it; whether it survives at all is still the receipts' answer, so a quiet capture ends it. The three callers that
+open a meter by themselves (log load, power resume, auto-open after fresh damage) pass `revealOnContent: true`. Every live opening still
+requires recent activity in an enabled lane, including the menu's Enable action; enabling a quiet meter arms it for later combat rather
+than showing an empty window. An eligible direct menu opening does not wait for its first board before becoming visible. Setup is a
+separate sample-data stage and can open without combat.
+
+Rows and receipts are therefore two different questions and neither replaces the other. Rows say *what is worth showing right now*; only
+the receipts can time anything, because rows do not age — the empty-answer path calls `HideAndReask`, which hides immediately and lets
+`HasActivity(mode, panels)` decide whether the window survives, so "on kill" still means an ongoing fight keeps its meter (and an explicit
+Reset still keeps polling a still-active fight rather than closing on its own zeroed board). Both directions keep computing whatever is
+displayed, so boards, healing and export are untouched and widening the choice needs no receipt rescan. Explicit Reset and already-applied
+timed cuts remain forward-only: changing panels does not resurrect a retired accumulation. Copy Parse copies the selected tab, which is
+the same half that is drawn — the two could only part company while the app was allowed to move the board out from under the selection. Tab
+layout, the nudge and the preview's sample rows are Windows gates in `docs/ReleaseChecklist.md`; nothing in the WPF assembly is run from
+Linux.
+
+### Damage meter column switches: hiding one reserves no width
+
+`MeterColumns` (Core) is the whole vocabulary — rendered cell, header word, tooltip, settings key and missing-key default of `% / Damage / DPS / RDPS / SDPS` — because
+three doors read one list: the setup picker builds itself from it, `CommitMeterState` writes it, the overlay lays out from it. **A column names its own `MeterSlot`**,
+so the picker's order and the block's cell order are one answer rather than two that happen to agree; widths and insets are indexed by that ordinal, so inserting a
+cell anywhere but the end is a test failure rather than a silent reorder (`TheTableNamesEveryCellItSwitchesAndSpellsEveryHeaderWord` pins the drawn order of all six
+cells, which is how "add SDPS to the right of RDPS" stays one row in one table). **`HeaderOf(slot)` spells every word** and the header markup ships empty `TextBlocks` —
+a word written twice is a word that can be renamed alone. **`Sec` is not a switch and has no key** (duration is what every other number on the row is read against);
+it carries only its word, kept in this same file. Names, icons and ranking bars always draw. The picker is the app's own
+checkbox-in-a-dropdown (`ComboBoxItemTemplateSelector`, committing on `DropDownClosed`), so every width decision previews as one gesture.
+
+**A column may carry a `PickerNote`, and it reaches the dropdown only**: that list reads `%`, `Damage`, `DPS`, **`RDPS (6s rolling)`**, because RDPS is the one word
+that is not self-evident — every other number on the row covers the whole encounter, this one covers the latest six logged seconds, and that is the first question
+somebody has after switching it on. Everything else prints its bare header word, and `HeaderOf` still gives the meter its short `RDPS` (a row of digits has no room
+for a parenthesis). The note is not a name: it keys nothing, saves nothing, and matching stays by bit — `PickerLabel` is built from `Header`, so a longer label cannot
+rename a column out of its header or its key. Exactly one qualifier is allowed (`ThePickerExplainsRdpsWhileTheMeterKeepsTheBareWord`); a parenthesised phrase on every
+item is the wall of text the bare list existed to avoid. **SDPS deliberately carries no note**, even though it is the other rate: operators already say the letters, and what
+needs explaining about a rate is its denominator, which the tooltip says rather than the label.
+
+`Load()` reads every key with `ConfigUtil.IfSetOrElse(key, that column's default)` — never a blanket "missing means false", which would blank `Damage` and `DPS`
+over one bad ini line — and Save writes every key, the off ones too, so an absent key only ever means nobody has chosen. Both doors — that ini read and a window
+full of checkboxes — fold their yes/no answers through **`MeterColumns.FromSwitches`**, because two loops that "both" turn checks into a mask is how a preview and
+a save come to mean different things; a new column needs no change in either caller since the fold walks the table. **A column key is `OverlayShow<What>Column`**
+and *every one* follows it — `OverlayShowPercentColumn`, `OverlayShowDamageColumn`, `OverlayShowDpsColumn`, `OverlayShowRdpsColumn`, `OverlayShowSdpsColumn` — because `OverlayShowing…` already belongs
+to another switch: `OverlayShowingDps` remembers *which panel is open*, damage or tanking, and a column key spelled like a panel selector invites merging two settings that
+have nothing in common. Pinned by `EveryColumnKeyIsASuffixedColumnSwitch`. **The one accepted breaking change:** `%` used to save as `OverlayShowDamagePercent`; nothing reads
+that name any more and `ConfigUtil.Save()` retires the line, so an install that had the digits on opens without them and turns the column back on once. The meter gained its
+configurable columns in that release, and resetting one rarely-used switch was cheaper than carrying a compatibility read forever — if that ever reverses, the cheap form is one
+extra read of the old name inside `MeterColumns.Load()` for that row, not a pass over `settings.txt`. **The defaults are the upgrade story**, because a
+missing key is what every install already has: `%` off, `Damage`/`DPS` on (never hideable before this), and
+**`RDPS` and `SDPS` off** — a column added after the fact arrives opt-in, so an untouched install keeps the meter it already had.
+
+Two laws:
+
+- **Hiding means the column's WIDTH becomes zero.** A collapsed `TextBlock` inside a fixed-width cell still reserves the cell, which was the old bug. Both header
+  and rows lay out from one `MeterColumnLayout` (Core, no WPF types — widths, right insets, minimum window width as plain doubles), so a header word cannot drift
+  from its digits and a staged preview cannot restyle another meter's columns; column widths left `Application.Current.Resources`, where a preview did — what stays in that dictionary and why is under
+  "Style state lives in the application resource dictionary".
+- **Columns are presentation only.** No flag reaches `MeterFactInput`, the lifecycle question, totals, ranking, duration, percentages or Copy Parse. RDPS keeps
+  being calculated while its column is hidden, so showing it asks for neither warm-up nor replay; a gesture recomputes layout and nothing else — no `AdjustHeight`,
+  no bar-pool rebuild, no calculation reset.
+
+The row-only minimum is the **visible** block plus `MeterColumnLayout.NameAreaMinWidthDip`, and that figure is deliberately **chrome-free**: it is what the Setup stage
+and a windowless meter ask for, with the border coming out of the rounded allowance. The live header also needs room for its separate toolbar:
+`MinimumWindowWidthFor` uses the larger of that name allowance and **measured toolbar content width + horizontal chrome + four DIP gap**, and chrome is spent against
+whichever branch wins, never twice. The window derives `MinWidth` from these figures; the overlay markup declares no minimum width. With columns
+hidden the meter goes narrower than it ever used to, which is a Windows gate to look at, not a floor to re-tighten. The toolbar's content
+`SizeChanged` re-asks the floor; positioning re-asks after DPI changes, converting toolbar width through physical pixels into meter DIPs. No guessed button widths
+or native-window minimums enter the measurement. Setup has no live toolbar and keeps the row-only floor; reopening live may widen a narrow saved stage. Nothing
+explicitly shrinks an already wide window, and this horizontal floor changes neither the height reserve nor accounting.
+
+Raising the floor while configuring carries the chosen gap across a width increase (`DamageMeterSettingsWindow.FollowStage`), never chases a narrowing and leaves
+a left-docked panel alone. Both halves of that arithmetic are **pure pixel functions in `MeterPanelPlacement`** — `PlaceBesideStage` for the opening dock, `FollowWidth`
+for growth — pinned by `MeterPanelPlacementTest`, so a monitor-geometry question is answered there instead of on a screen. Initial docking uses the **stage's monitor**,
+not the primary screen (what was removed read `SystemParameters.WorkArea`: the PRIMARY work area, in DIPs); width-only following clamps to the **panel's monitor**.
+Drag deltas, window rectangles, work areas and native moves all use screen pixels, including negative desktop coordinates, so different DPI scales cannot mix a DIP width
+with a pixel boundary. A drag clamps both axes to the stage monitor's work area, even without width growth or with a left-docked panel;
+`FollowLeft` and `FollowTop` keep the panel reachable and release it when the drag reverses. Width-only changes retain the separate
+`FollowWidth` rule: neither narrowing nor growth away from a left-docked panel moves it. `MeterPanelPlacementTest` pins both axes,
+negative monitor origins, oversized panels and pixel scaling. Move/size events share one previous rectangle and cannot spend a delta twice; both subscriptions detach on close — and they attach **before** any
+docking attempt, so a rectangle read that fails at opening costs the initial dock only rather than deafening the panel for the rest of configure. A failed native read or
+move costs one WARN per failure episode (repeats raise only a Debug count) and leaves the companion stationary for that attempt: it
+never throws out of a move/size handler and never moves against an unchecked work area — a work-area read that fails while both
+rectangles read cleanly means the desktop is mid-change, so following without a clamp is the wrong answer. A placement that succeeds
+ends the episode, so a later failure is allowed one WARN of its own. The previous rectangle is **adopted only once a move lands** (or the
+panel already sits where the clamp puts it): a refused `MovePanel` returns before adopting it, so the next move/size event carries the whole
+outstanding displacement instead of losing the part that was refused — spending the base before the native call made one refused gesture a
+permanent offset, since only a completed follow is entitled to forget what it moved by.
+The right insets are per cell, so a negative one ends past its own edge into whatever cell comes **next**;
+hiding a neighbour moves that overflow onto the following column (`%` against wide `DPS` digits at 10 pt is the tightest case), which is corrected in the inset preset
+and never by handing a number its own switch. Remember what that floor going down means: the meter can be dragged narrower than it used to go and names are not
+ellipsised — a long name against the remaining digits is a Windows check, and the fix is the name allowance, never a new switch. Tanking shares both the switches
+and the header words by operator decision: `DPS` on the tank board is DPS done *to* you and earns no new terms.
+
+Pinned headless by `MeterColumnLayoutTest` (every column mask × every font, defaults, fallback, keys, cell order, words, the single check→mask fold and toolbar separation) and
+`MeterPanelPlacementTest` (growth, narrowing, left docking, secondary/negative work areas and pixel scaling). `DamageBarColumnTest` (Windows-only assembly)
+puts a real row through measure/arrange. Live toolbar/header separation, mini-bar margins, mixed-DPI docking/following, Save/Cancel and the upgrade sight remain
+Windows gates under "Damage meter column switches, checked on Windows" in docs/ReleaseChecklist.md.
+
+### Three rates, three denominators
+
+The meter can print three numbers per second for one name and none of them is interchangeable: **DPS** divides by the time *this name* was active (`PlayerSubStats.TotalSeconds`),
+**RDPS** by the latest six logged seconds (`MeterRecentWindow`, per-life buckets), and **SDPS** by the time the *raid* was — `CalculateRates(row, raid, null)`,
+the same call the damage and tanking summaries use for their SDPS column. The gap is the point: a parser who joined late leads on DPS and reads far lower over the raid's clock,
+and the two columns side by side are what says so. `TheRaidTimeRateDividesByTheRaidsSpanNotTheNamesOwn` pins it, and `DamageMeterAssert.Equal` compares SDPS between the board's
+`DerivedTotals` path and the meter's own fold, so the two cannot drift apart in either direction. Two consequences worth knowing before touching this:
+**the raid/title row repeats its own DPS**, because the raid divided by its own span is its average (`RaidStats.Sdps` is never assigned — an empty cell there reads as a broken
+column, so the window prints the true figure twice); and the tanking panel needs no special case, since `MeterDirectionTotals.Publish` runs the same rate fold for both directions
+with the same raid span. Like every other column, SDPS is computed whether or not it is shown — no switch reaches `MeterFactInput`.
+
+### Incremental damage meter: compact accounting, paired publication
 
 The live meter now uses `DamageMeterCalculation`, not two full summary builders per tick. `DerivedTotals.ForOverlay`
 remains the one-shot reference used by equivalence tests and other explicit queries. Damage and tanking continue
@@ -7312,8 +7785,9 @@ On Kill removes just the departing life's compact contribution and re-unions the
 subtract overlapped seconds as if they were additive. Timed modes extend accumulated totals and activity unions.
 `TimeRange.AddAndMeasure` exposes the existing union's change in covered seconds, avoiding a complete sum of old
 spans on every add. Backward activity timestamps rebuild the compact unions so an old wider range cannot survive
-an end-time contraction. Future-dated facts record a re-evaluation boundary. The existing `DamageOverlayLifecycle`
-still owns selection, completed-result grace, pending-combat protection, and reset semantics.
+an end-time contraction. Explicit finite log-time queries retain an upper-bound re-evaluation boundary; the live meter uses
+no upper ceiling, so future-dated captured facts count immediately. `DamageOverlayLifecycle` still owns selection,
+completed-result retention, pending-combat protection, and reset semantics.
 
 The ranking caveat is real rather than cosmetic: Damage Summary assigns ranks through shared expanded/top-level
 row objects, and sorts timestamp blocks with an unstable equal-time comparison. Merely sorting compact totals by
@@ -7323,10 +7797,19 @@ and memoizes its layout. A new block can require sorting historical **block meta
 does not fix the board's rank semantics as a side effect of changing performance. Tests pin repeated block resorts,
 pets, plain rows and zero/equal totals.
 
+`MeterBuildRetry` bounds each overlay ask to three attempts, including snapshot replacement, invalidated receipt inputs and the intentional
+retry after initializing a timed bound. `MeterBuildResult.Completed` may hold null (a verified empty answer); `Deferred` is not an empty
+answer. Exhaustion commits no lifecycle checkpoint, replaces no displayed stats and publishes no new presentation deadline. The next
+ask recaptures current inputs; the activity cache still invalidates against its bounds, prefixes and verdict/filter inputs. This bounds
+attempts, not wall time: a single scan, decode, gate wait or sort can still take time, with existing cancellation checks unchanged.
+`MeterBuildRetryTest` pins exhaustion, early success, empty answers, cancellation, timed initialization and discarded checkpoint state.
+
 `MeterRefreshGate` coalesces derive and timer requests through one monotonic one-second cadence, with one running
 worker and one pending slot. Expiry/pending checks still run without a derive. A busy request is owed, not dropped.
-`MeterLifecycleCheckpoint` retains only scalar lifecycle state across windows; work uses a copy and commits only
-while its window owner/reset revision remains current. Reset invalidates and clears immediately, never waits for a
+A deferred completion releases the worker and preserves pending work but cannot immediately drain another retry budget, even after a long
+scan or a queued forced gesture. The next existing request can start it; no extra timer is added and the old presentation still expires.
+`MeterRefreshGateTest` pins that yield and the pending gesture. `MeterLifecycleCheckpoint` retains only scalar lifecycle state across windows;
+work uses a copy and commits only a completed result while its window owner/reset revision remains current. Reset invalidates and clears immediately, never waits for a
 record walk, and close/capture change cancel work between batches. Static state retains no capture input. DPS/Tank
 switches render the last paired answer immediately rather than scheduling another historical build. Class icons
 are recreated only when their class changes.
@@ -7346,9 +7829,7 @@ mutable accounting. These checks do not interrupt a monitor wait, an individual 
 Fixed-seed tests compare incremental, fresh compact and full-reference answers after mixed pulls, deaths, quiet
 gaps, resets, filter/owner changes and reindexing. Deterministic cancellation tests interrupt rebind between lives
 and presentation after counting, without sleep-based races or production test hooks. Gate-hold measurement and
-Windows/long-session checks remain outstanding; no retry or timer policy changed in this hardening.
-Follow-up Linux validation: **2,236 headless tests passed, 6 skipped**; the full no-incremental solution build
-and explicit WPF-test build succeeded with **zero warning/error diagnostics**. WPF runtime tests were not run.
+Windows/long-session checks remain outstanding; cancellation checks do not impose a wall-time limit on an individual attempt.
 
 **Headless measurement, not Windows frame latency.** A disposable test harness replayed each gitignored log through
 `PipelineHarness`, settled cold chunk encoding without forcing GC, selected the entire projected history, and compared
@@ -7377,12 +7858,10 @@ THJ append sample exceeded it. The measured win is removing repeated historical 
 not proving that every possible long session is free. Windows execution, end-to-end/GC/UI interference, high-add-count
 soak, and peak-retention measurement remain release gates in `ReleaseChecklist`.
 
-Initial implementation validation on Linux: **2,228 headless tests passed, 6 skipped**, including 28 additional tests and
-compact/full
-comparisons inside all 35 overlay lifecycle tests. The explicit WPF-test assembly build and full no-incremental
-solution build succeeded with **zero warning/error diagnostics**. The WPF suite was not executed on Linux.
+A compact answer that disagrees with a full one fails in `DamageOverlayLifecycleTest`, which carries the compact/full
+comparisons for every lifecycle case; it does not wait for a count.
 
-### One dial for both surfaces (2026-10, burn-in)
+### One dial for both surfaces (burn-in)
 
 *(Names in the notes above predate 2026-11: the engine was "the combat mirror" then - `MirrorMeter` is now
 `DerivedMeter`, and the operator's file was to be `mirror-overrides.txt` before it ever reached an installed build; it
@@ -7401,7 +7880,7 @@ The word is scaffolding for the side-by-side burn-in only: when the legacy engin
 the fight window simply docks and toggles like the old one — no settings entry. Nothing on the OFF branch may do
 anything beyond "legacy runs exactly as before", or the deletion commit grows a behaviour migration inside it.
 
-### A taunt belongs to the life that was open when it landed (2026-10)
+### A taunt belongs to the life that was open when it landed
 
 The spell/taunt census over `eqlog_Incogitable_xegony.txt` found the one real bug the new seam could hide: derived
 taunt totals ran ~300× legacy (`Useless|An echo`: 16 → **4,608**), while the log itself held **4,364** of Useless's
@@ -7430,7 +7909,7 @@ prints grand totals precisely so a multiplication like this reads as a total out
 per-pair moves (`SpellTaunt_RealLog_Census`). Pinned by `TauntsLandOnTheirNpcRowWithTheOutcomeWords`, which now also
 carries the out-of-lifetime taunt that belongs to nobody.
 
-### The X closes a meter; it does not reset one (2026-09-29)
+### The X closes a meter; it does not reset one
 
 Reported from use: the reset button behaves, but "the X is just supposed to close the window and it would open back up next
 time damage comes in
@@ -7516,7 +7995,7 @@ EQLP_DERIVE_LIVE=local/eqlog_Kizant_xegony.txt dotnet test EQLogParser.Test/EQLo
 ```
 EQLP_DERIVE_LIVE=local/eqlog_Kizant_xegony.txt dotnet test EQLogParser.Test/EQLogParser.Test.csproj \
   --filter LiveFights_RealLog --logger "console;verbosity=detailed"     # prints [live] coverage, starts, restarts, reopen ceiling
-## How long a meter update takes, measured end to end (2026-09-29)
+## How long a meter update takes, measured end to end
 
 Asked: can the meter update faster? Before changing anything the seconds were attributed, because "the meter is slow" has at
 least five
@@ -7581,7 +8060,7 @@ These numbers came from `MeterBoardCostRealLogTest` (gated on `EQLP_DERIVE_COST`
 `StatsBuildTrace` still
 prints the same phases from a real session.
 
-### What was built from that list: the cheap lane, and 125 ms of overhead (2026-09-29)
+### What was built from that list: the cheap lane, and 125 ms of overhead
 
 Took **(c) then (a)** from the options above. Both are in, and the numbers below are arithmetic over the measurements in that
 table — they
@@ -7662,7 +8141,7 @@ this app writes, which is the
 file anyone debugging a report is reading.
 
 
-### Re-measured after a season of identity rules (2026-10)
+### Re-measured after a season of identity rules
 
 With the rule count up from 14 to 20 and the casting-signature families at fifteen, the same Incogitable
 benchmark reads **classify 309 ms + project 435 ms = 744 ms** for a full pass (recorded 732 ms before the
@@ -7674,7 +8153,7 @@ the capture path gained no check from any of it. The classify term remains domin
 sweeps (R9/R18/R15/R7/R6) as when they were itemized; a rule that outgrows them is the trigger to make
 sweeps incremental, and the gated benchmark is what shows that - not speculation.
 
-## Handlers that XAML fires early (2026-10)
+## Handlers that XAML fires early
 
 Two startup crashes in `FightTable`, one build apart, taught the same lesson twice — and the codebase already knew it.
 
@@ -7734,7 +8213,45 @@ construction contract, not theme fidelity; and a startup crash class that only a
 argument
 for launching the built app before shipping UI code.
 
-## A pane built inside MainWindow's parse cannot read a theme width (2026-11)
+## Style state lives in the application resource dictionary
+
+Every style value that has to travel between files travels as `Application.Current.Resources[key]`, never a window's or element's own `.Resources`.
+That is not debt waiting to be tidied — it is how repainting works here. A reader holds a *key*
+(`{DynamicResource EQLogFontSize}` in markup, `SetResourceReference(prop, "DamageOverlayProgressBrush")` in code) and the publisher overwrites the value, so a
+theme switch or a user's new bar colour repaints every reader with no window holding a reference to another and no event per styled thing. Window-scoped
+dictionaries would mean every pane re-publishing on every theme change, which is the fan-out `ThemeConfig` exists to remove; the only per-window styling in the
+app is `ThemeConfig.SetCurrentTheme(DependencyObject)` → `SfSkinManager.SetTheme`, and that stamps a skin, not a key.
+
+**A key's name belongs to the pane that writes it**, in the form `<cluster><What>`: the theme cluster owns `EQLogFontSize`, `EQChatFontSize`,
+`EQTableRowHeight`, `EQContentSize`; the damage meter owns everything starting `DamageOverlay`; the trigger overlays own `TimerBar*` and `TextOverlay*` —
+and those two families build their keys at runtime (`TimerBarFontSize-<overlay name>`), which is why a static key from another pane cannot collide with one by
+accident. Grep the prefix before adding a key. Two writers on one key is legitimate in exactly one shape: **`ThemeConfig` publishes the themed default and the
+owning pane overwrites it with the user's value** — `DamageOverlayProgressBrush`, `EQContentSize`, `EQLogFontSize`, `EQChatFontSize`, `EQGoodForegroundBrush`,
+`EQIconStyle` all work that way. One key meaning two different things to two panes is the failure mode, and nothing catches it at compile time: a mistyped or
+reused key is a silently unset property, not an error.
+
+**What makes process-wide safe for the meter, and what would end it.** Those five meter keys (`DamageOverlayFontSize`, `BarHeight`, `ImageSize`,
+`ProgressBrush`, `HighlightBrush`) have nothing scoping them, so they are correct only because the writers are *complete*: `WindowInstanceSlot` keeps exactly
+one `DamageOverlayWindow` alive and every constructor republishes all five from disk — `UpdateFontSize` (which also sets `ImageSize` through
+`UpdateColumnSizes`), `UpdateMiniBars` (`BarHeight`), `UpdateProgressBrush`, `UpdateHighlightBrush`, all fed by one `DamageMeterConfigState.Load()`. That is
+also why walking out of configure needs no undo code: MainWindow reopens a live meter and that constructor writes the saved values back over any previewed
+ones. **The precondition carries the safety, so it is the thing to re-read before changing either side**: if a second overlay ever lives at once
+(`WindowInstanceSlot` becoming a list) or another pane wants the meter's colours, those five assignments move to the window's own `Resources` — and nothing in
+`DamageBar` notices, because both of its lookup paths walk element → parents → `Application`, which is precisely why the same key strings can change scope
+without touching a row. A half-migrated meter (some keys window-scoped, some not) is worse than either state.
+
+**A colour travels as a key, never as a brush.** `DamageBar` takes dictionary keys — `nameForegroundKey`, `progressColorKey`, and per row
+`colorOverrideKey` — so "this is my own row, draw it with the highlight brush" means *whatever the meter publishes under that key now*. Handing the row a
+`Brush` would freeze the colour at construction and ride out a theme change as the wrong colour. The words and ini keys of the numeric columns live in
+`MeterColumns`; the resource keys live in the overlay window that publishes them, which is what keeps "which value am I actually looking at" answerable from
+one file.
+
+**Verification boundary.** These lookups need a live `Application`, so no headless test can see a key typo; themed construction tests bring their own
+entries instead — `FightTableStartupTest` stubs the three `App.xaml` keys a themed pane needs (`CustomCheckBoxTemplate`, `TemplateToolTip`, `EQIconStyle`) into
+a bare `Application.Current`, pinning the construction contract and nothing about theme fidelity. What is pinned headlessly is the *table* side (column words,
+keys, defaults — `MeterColumnLayoutTest`); whether a name actually resolves to a brush is a running-app question.
+
+## A pane built inside MainWindow's parse cannot read a theme width
 
 "The fight list shows no Initial Hit Time" was not a binding problem, a hidden column, or the layout file: it was **ordering**.
 `FightTable` is declared in `MainWindow.xaml`, so WPF constructs it from `InitializeComponent()`, and
@@ -7785,7 +8302,7 @@ SfDataGrid) per test, well past the vendor's five-construction counter; if `IsLi
 which is what a clean run looks like for it: `Sta`'s live-thread list is exercised only by a real wedge, so that filter stays
 measured-by-construction until the next Windows hang.
 
-## A test host is unlicensed, and Syncfusion says so at construction (2026-11)
+## A test host is unlicensed, and Syncfusion says so at construction
 
 Two Windows runs in a row: the second one lost two `Sta.Run` bodies — `TheFirstSnapshotTakesTheBandDownForGood` and
 `AXamlCheckedBoxDoesNotOverwriteASavedDialBeforeItIsRead`, unrelated classes, each at exactly the 60 s budget. The new
@@ -7851,7 +8368,7 @@ still worth looking. Its wording says "first reported ~N s ago" for the same rea
 own budget
 expires, so the timestamp is detection, not onset.
 
-## The derive that survives its own rules (2026-10)
+## The derive that survives its own rules
 
 **Why: a user asked, twice, "when would anyone ever press Re-derive?" — and the honest answer was once.** The button
 existed because a failed pass latched auto-derive OFF for the life of the session ("stop the loop, leave Re-derive
@@ -7885,7 +8402,7 @@ deleted, and the pane shows no failure state at all (its top-right status sectio
 line above is the only trace of a failing pass. Tests: the guard laws (streak
 arithmetic, retire-self-only, reset-on-new-session, never-silent) and the ladder's shape.
 
-## The EMU corpus joins the parity battery (2026-10)
+## The EMU corpus joins the parity battery
 
 **Why: every real-log measurement to date was one log format.** The reorganized corpus puts live captures under
 `local/logs/live/` and EMU-server captures under `local/logs/emu/`; the latter parse differently — Heroes Forge
@@ -7915,7 +8432,7 @@ healers, zero heal diffs), and its fight rows now count 4,471 = legacy's 4,471 e
 said 4,312 — the row-per-life split work closing that gap. The emu tanking line (Roper: legacy 35.5 M all-comers vs
 21.4 M people, derived 21.4 M) is the same "legacy's board counts NPCs" census as live logs.
 
-## The legacy engine is deleted: final parity numbers, kept on paper (2026-10)
+## The legacy engine is deleted: final parity numbers, kept on paper
 
 `FightManager`, `DamageOverlayStatsBuilder`, the legacy `FightTable` pane, the
 parser's `FM` feed and the whole parity scaffolding (`FightParityDiff`,
@@ -7954,7 +8471,7 @@ store, the mirror's `HandleDeath` → fact death queues) through `EventsNewDeath
 and nothing needs a deferred "remove active fight" flush anymore.
 
 
-## The companion line names the summoner (2026-11)
+## The companion line names the summoner
 
 ### What the rule believed, and what the captures say
 
@@ -8074,7 +8591,7 @@ does write that shape), `IdentityPriorStoreTest` (vocabulary, plus the new bug-e
 Windows assembly —
 which builds here but has to be **run on Windows** like every other test that constructs a pane.
 
-## The identity pane holds still, and offers only what a name can be (2026-11)
+## The identity pane holds still, and offers only what a name can be
 
 Two complaints about the Player/NPC Identity window came in as one sentence each and turned out to be the same complaint:
 the pane was built for the moment it is opened rather than for somebody reading it while the log grows.
@@ -8146,7 +8663,7 @@ Tests: `TheTypeListOffersOnlyWhatANameCanBe` (headless), and in the Windows asse
 `ARefreshKeepsEveryRowWhereTheReaderLeftIt`, `ANameTheCensusDropsLeavesTheList`, `OpeningTheTabAgainReRanksTheList` — the last
 three construct no WPF element, they exercise `MergeRows` against an `ObservableCollection`.
 
-## The two identity panes share the right edge (2026-11)
+## The two identity panes share the right edge
 
 Player/NPC Identity moved out of the fight list's tab group and into **Pet Owners'** panel on the right, and lost its header
 row on the way. Three things had to be decided that a dock markup does not decide for you.
@@ -8221,7 +8738,7 @@ a door to it, nothing in the wild carries a `!Name` row, and the machinery is **
 afterwards is free). This pane's pencil keeps four kinds plus "Clear claim", which is the unset a row needs; a permanent
 "not one of ours" would have to arrive as `Set as NPC`, an assertion the rules can weigh, not as a silence.
 
-## What a capture proves with empty memory (2026-11)
+## What a capture proves with empty memory
 
 The roster-persistence question - should the parser keep writing
 `players.txt`, and what does an empty memory actually cost? - was answered by
@@ -8294,7 +8811,7 @@ notes). The measurement harness that produced this table was never committed -
 it printed and asserted nothing, which makes it a script wearing a test
 attribute. Standing rule: AGENTS.md -> "A gated real-log test is disposable".
 
-## What the cold misses actually are (2026-11)
+## What the cold misses actually are
 
 The question worth asking before buying memory: if a raider casts no class spell and
 never speaks, do we not still see them **attacking what everyone attacks** and
@@ -8383,7 +8900,7 @@ player names collide with NPC names, identity is keyed by name (so a second spel
 fix it), and `Shalowain` is an NPC that sings. A tell rule would have to sit under npcs.txt
 and `Targeted (NPC)`, and it would place 425 hailers who are not this operator's raid anyway.
 
-## Memory: one import, three files, one wall clock (2026-11)
+## Memory: one import, three files, one wall clock
 
 > **Status: decided 2026-11; the roster's half is BUILT, the retirement of `players.txt` is not.** What is true in the tree:
 >
@@ -8450,7 +8967,7 @@ Three laws keep that merger honest:
   identity must then agree: pet pairs need a last-seen stamp to age at all, and the
   prior ledger's "90 days behind my own newest row" becomes the same window against
   now, because a ledger nobody opens currently keeps everything forever.
-  **Built for the two files that exist today** (2026-11): `PlayerRegistry.StaleDays` = **200** is the single dial, and
+  **Built for the two files that exist today**: `PlayerRegistry.StaleDays` = **200** is the single dial, and
   pet rows carry their own stamp because — as this item said — a pair with no time cannot be asked whether it is still
   true. The stamp is written on a *sighting* (a possessive line, a chat ownership line, an edit in the grid) from the
   wall clock, since what ages is our memory and replaying last year's capture refreshes a pet today; rows with no stamp
@@ -8496,7 +9013,7 @@ again normally on the next sighting. It never means veto - the `!Name` rejection
 is deleted (0026a22d) because no shipped build ever had a way to write one.
 
 
-### The roster lane: membership is not a verdict, so it keeps its own clock (built 2026-11)
+### The roster lane: membership is not a verdict, so it keeps its own clock
 
 `identity-priors.txt` now holds two kinds of row under one name, and the shape says which is which:
 `Name=Kind|Reason|SeenAtS|Sightings[|Ours[|Class]]`. Five fields is a rule's memory of what a capture witnessed; six
@@ -8551,7 +9068,7 @@ that `RegistrySeed` feeds are byte-identical, which is what "additive" has to me
 it did whether or not identity-priors.txt exists. The importer that fills this lane, and the point at which players.txt
 stops being written, are the next sections.
 
-### The one seam that answers "is this one of ours?" (built 2026-11)
+### The one seam that answers "is this one of ours?"
 
 `IdentityLookup.IsOneOfUs(name[, t])` in Core is the address of one question, asked in this order:
 
@@ -8639,7 +9156,7 @@ What a migrated pane changes visibly, stated once because it is the same in ever
 nobody ever typed anywhere now appears in "players only" filters and owner dropdowns, and "Set as Verified Player" greys
 out for her - that item is for names nothing can place.
 
-### The one-time roster import: membership moves, and nothing else does (built 2026-11)
+### The one-time roster import: membership moves, and nothing else does
 
 `LegacyPlayerImport.ImportPlayersFileOnce(server)` runs at log open, from `MainWindow`'s per-server block, in the order the
 stores are read: `identity-overrides.txt`, then `identity-priors.txt`, then the import, then `PlayerRegistry.Init()`. It
@@ -8700,7 +9217,7 @@ stamps and class, once-per-folder, absent-file silence, junk refused while good 
 character and refused when none is open, the wrong folder refused with no file created behind it, seeding with no
 players.txt at all, and eviction across both stores).
 
-### A load is not a sighting (2026-11)
+### A load is not a sighting
 
 The rule that governs every stamp in `config/<server>/`, stated once because three files now obey it:
 **reading a file into memory is not evidence, so a load may not write, and may not date.** Concretely: `AddVerifiedPlayer`,
@@ -8717,7 +9234,7 @@ March is still old after the migration - which is correct, and is the point of a
 pinning test asserts the sharp half by writing nothing back: seed from a ledger, call `Save()`, and require that no
 players.txt appeared (`TheRegistrySeedsItselfFromTheLedgerWithoutPlayersTxt`).
 
-## The checks that decide who is a player (kept, moved, corrected) — 2026-11
+## The checks that decide who is a player (kept, moved, corrected)
 
 The legacy engine decided identity by **ingesting into `PlayerRegistry`**: about twenty parser call sites each claimed
 "this name is a person" or "this pet belongs to this player" out of one line's shape, and every surface then asked that
@@ -8769,7 +9286,7 @@ memory that disagrees with its own file. That is why the roster import does not 
 letters only, so it would drop ``Akini, Xanathan`s Warder`` — one summon, two masters) and why the pet-map import keeps the
 unassigned text that the roster side refuses.
 
-### The claim moves to the evidence stream (2026-11) — loot lines are the first shape through the door
+### The claim moves to the evidence stream — loot lines are the first shape through the door
 
 The direction was chosen, not drifted into: **a line that proves somebody is a person becomes EVIDENCE in the classification
 system, not a write into `PlayerRegistry`.** The registry stops being a second authority on identity and keeps what it is
@@ -8797,7 +9314,7 @@ Mend Companion family) into the ownership lane → then `players.txt` stops bein
 standing `_playersUpdated` drain has been blocking. The tell/sing shapes stay refused: they name bazaar hailers and NPC
 bards, and a claim that cannot be made is not a write to relocate.
 
-## Splitting PlayerRegistry by job, and where a default class really lives (2026-11)
+## Splitting PlayerRegistry by job, and where a default class really lives
 
 "Remove PlayerRegistry" is not a question that can be answered, because the class is not one thing. Read as five jobs:
 (1) **identity memory** — verified players, `players.txt`; (2) **pet → owner map** — `petmapping.txt`; (3) **class**: an
@@ -8880,7 +9397,7 @@ class writer + read precedence flip + the three operator call sites retargeted; 
 the five `NeedProcessing_*` tests re-pinned, then the callback dropped from `NeedProcessing` and `LogProcessor`; writes and
 reader of `players.txt` retired together; pet-owner edits written to the lane; observed class windows stay memory-only forever.
 
-## Boundary defects the classification review found (2026-11)
+## Boundary defects the classification review found
 
 The branch's core — evidence, verdicts, incremental folding — measured well. All four defects were at a **boundary** between
 the new engine and something old on the other side: an event, a cache, a cadence, a dropped fact. Each one is silent, which is
@@ -8987,7 +9504,7 @@ cleanup — see "Definition of done" below. Mercenary was *not* left as a writab
 offers it only on a row that already reads Mercenary (or one the operator claimed), so no dropdown can move a raider onto
 that kind.
 
-### Pet-ness is a parse side effect, so the second parse of a capture in one process reads differently (2026-11)
+### Pet-ness is a parse side effect, so the second parse of a capture in one process reads differently
 
 Measured by running `eqlog_Incogitable_xegony.txt` **twice inside one test process** — same file, same
 1,891,875 damage facts, same 420,115 heals, same 4,840 rows:
@@ -9021,7 +9538,7 @@ now prints one line with everything that could differ — ledger rows, override 
 and pet counts, heal count — because the way to find this class of drift is to see which number moved, not to argue
 about the routing code.
 
-### The parse side effect was a missing store reset, not identity design (2026-11 — resolves the section above)
+### The parse side effect was a missing store reset, not identity design (resolves the section above)
 
 The question above got answered by instrumenting the two registration sites (`HealingLineParser`'s possessive heal target and
 `CastLineParser`'s Pet-target spell branch) and printing what each saw for the drifting names. **Pet-ness never moved because
@@ -9147,7 +9664,7 @@ used to be here —
 by hoping). Hiding
 the filter from the grid removed that restriction: see the next section.
 
-### The fight list dials filter our rows, not the grid (2026-11)
+### The fight list dials filter our rows, not the grid
 
 The Fight List has two row dials — **Inactivity** (show the gaps between pulls) and **Tanking** (hide the rows whose whole
 story is something
@@ -9231,7 +9748,7 @@ unchecked items in `docs/ReleaseChecklist.md`, not claimed as automated coverage
 
 Re-announcement is conditional too — see the next section. The search mark survives a pass as long as its row stays visible.
 
-### The fight list moves its own viewport once (2026-11)
+### The fight list moves its own viewport once
 
 Operator, on the fixed-filter build: *"only scroll down to the bottom after loading a log file. during active fighting just
 leave the list where
@@ -9350,7 +9867,7 @@ refusals) and
 counts, the
 divider-label law, a three-pass run holding its objects). The second needs Windows; the first carries the logic.
 
-### The stamp asks two different questions, and only one of them costs a rebuild (2026-10)
+### The stamp asks two different questions, and only one of them costs a rebuild
 
 The operator's log (`local/logs/EQLogParser.log`, Debug on) settled the open "double stats" report without a profiler:
 
@@ -9489,7 +10006,7 @@ was written red against the old shape first, and moves no golden. Same law as th
 published state are different things**; whoever finalizes a report writes a copy of an answer, never
 mutates the store that produces it.
 
-### What a whole-selection build spends its seconds on, by stage (2026-11)
+### What a whole-selection build spends its seconds on, by stage
 
 The same replay, one stage finer (`StatsBuildTrace`, `MeterBoardCostRealLogTest` over `eqlog_Kizant_xegony-09-03-26.txt`, 708
 rows / 697 materialized fights /
@@ -9559,7 +10076,7 @@ carry by design) while quiet passes continued 4/4. The cheap lane is what keeps 
 costs its rebuild and that is the
 price of re-reading the evidence.
 
-### Reading memory is not a sighting: what made the first Select All build twice (2026-11)
+### Reading memory is not a sighting: what made the first Select All build twice
 
 The reported gesture — open `eqlog_Kizant_xegony-09-03-26.txt`, Select All, watch the summary appear, clear, and rebuild to
 the same totals — was replayed
@@ -9624,7 +10141,7 @@ healing ~1.4 s over 2.65 M heal rows; tanking ~40 ms over 133 k. So a refresh's 
 asked about, which is the delta
 path's target — and the per-row materialization cache is already worth a 3.5× cut on the step before it.
 
-### Would an equality gate have saved anything? Measured: no — so the fight list wants an incremental update (2026-11)
+### Would an equality gate have saved anything? Measured: no — so the fight list wants an incremental update
 
 The proposal was to stop repainting surfaces when a derive pass changed nothing visible. Before writing the comparison,
 the now-retired live-tail probe replayed
@@ -9702,7 +10219,7 @@ instrument if someone wants the finer number (the 24-pass Kizant run is a first 
 nothing
 about the verdict). The decision above does not depend on it: incremental updating wins whether the no-op share is 0 % or 40 %.
 
-### One build in flight: the same click asked twice, and both paid (2026-11)
+### One build in flight: the same click asked twice, and both paid
 
 The pane-side stamp rule above decides **whether** to ask. It cannot decide **how much the asking costs**, and the field report
 that came back after it shipped was about cost: selecting all on a night's capture still built the stats twice. Announcements
@@ -9768,7 +10285,7 @@ left marked busy means every later request queues behind a build that never fini
 `AQueuedRequestIsStillRunAfterAFailedBuild`).
 
 
-### Name every door: which build was which (2026-11)
+### Name every door: which build was which
 
 The gate went in and the report came back unchanged, then sharper: load a large capture, select all **immediately**, and the
 damage
@@ -9842,7 +10359,7 @@ the anomaly **warns** (a door that did not name itself, two builds running over 
 warning per episode,
 since 2.4.3**.
 
-**Overlap was never rare, so it stopped being per-build (2026-11, after an operator's 2.4.3 log).** The claim above — "rare
+**Overlap was never rare, so it stopped being per-build (after an operator's 2.4.3 log).** The claim above — "rare
 enough that seeing one
 is the point" — is what a build counted in hours disproves: `stats build #5528` at 19:30 and `#12896` at 20:29 is ~2
 builds/second of steady
@@ -9864,7 +10381,7 @@ warning that fires in steady state is a metric wearing an alarm**, and the fix i
 opens, episode closes),
 never to delete the counter.
 
-**Say it once, then count: `RepeatCap` (2026-11, from the same audit).** The overlap warning was the visible symptom;
+**Say it once, then count: `RepeatCap` (from the same audit).** The overlap warning was the visible symptom;
 auditing every remaining
 `Log.Info`/`Warn`/`Error` call for the same shape found the worse one hiding in plain sight — the four line parsers' `catch`
 blocks each called
@@ -9907,7 +10424,7 @@ alone: `DamageFactTable.MissedRow`/`HealFactTable`
 cap their past-end-ordinal warning per capture with their own exchanged flag, and `TriggerOverlayManager`'s dropped-text/timer warnings were
 throttled before this. Tests: `EQLogParser.Test/src/util/RepeatCapTest.cs`.
 
-### What a player's log is for (2026-11: the last machine-written lines went to Debug too)
+### What a player's log is for (the last machine-written lines went to Debug too)
 
 The anchors survived the first demotion on an argument about diagnosis - `capture: started`, `derive: first pass`, `fight
 list: N row(s) painted`
@@ -9951,7 +10468,49 @@ panes' doors as children of the selection they re-slice, or removing the load-ti
 next three lines of
 log rather than by argument — which is the entire reason it was built in this order.
 
-## A rank formulation is not a sentence end (2026-10)
+## Nothing escapes a thread that has no net, and a fault speaks once
+
+Two of the application's exception nets are nets and one is not. `DispatcherUnhandledException` logs and sets `Handled`, so an exception from a click,
+a XAML-fired handler or anything else queued on the dispatcher is survived. `TaskScheduler.UnobservedTaskException` marks observed and logs, so a
+fire-and-forget task is survived — but it fires whenever the garbage collector gets round to finalising that task, which is why a lane that owns a loop
+reports its own faults instead of leaning on it. **`AppDomain.UnhandledException` is not a net**: `IsTerminating` is already set, so it gets to say one
+sentence before the process ends. Every timer callback (`System.Threading.Timer`, and a `System.Timers.Timer.Elapsed` handler), every work item, and
+every `async void` continuation that resumes without a `SynchronizationContext` lands there. In this program that means an `IOException` from the identity
+save, one window's handler throwing behind the records store's 1.5 s fan-out, or a fault in a trigger lane ends the application mid-capture, with the last
+minutes of verdicts unwritten and no explanation the operator can act on.
+
+**So nothing may escape one of those bodies.** `ThreadBoundary.Guard(site, work)` holds the exception, names what was attempted, and lets the loop carry on;
+`ThreadBoundary.Note(site, ex)` is the same voice for a catch block that already exists (the follow poll's reopen arm, the chat archive, each trigger lane and
+its per-take arm). Both speak through `RepeatCap` keyed on site + exception type: the first sighting at Error with its stack, everything behind it counted and
+silent — because a timer that fails once fails every interval for the rest of the night, and an uncapped Error there buries the one sentence that is the
+diagnosis under forty thousand copies of itself. Two different kinds of fault still get two lines, and the cap never re-opens on a timer (that is `RepeatCap`'s
+law, with the reason). The records store's fan-out goes one step further and guards **per subscriber**, so a window whose handler throws loses its own refresh
+rather than the other windows'. Pinned by `ThreadBoundaryTest`: the fault never comes back out, a faultless tick says nothing, five of one kind cost one line,
+two kinds cost two. Reporting is guarded too: a formatting or logging failure falls back to `Trace`, and even a throwing Trace listener cannot
+escape `Note`. The original site/type cap remains spent, so a failed reporter does not retry noisily on every tick.
+`ReportingFailuresCannotEscapeEvenWhenTheTraceFallbackAlsoFails` pins both `Guard` and direct `Note`, with working and throwing fallback listeners.
+
+**The nets themselves may not need a net.** In all three handlers the statement that keeps the application alive (`Handled`, `SetObserved`) is executed before
+any reporting, and a failure while reporting goes through `ThreadBoundary.TraceFailure` rather than propagating. Both exception formatting and Trace listeners
+are inside its catch; passing an already-formatted interpolated exception would leave formatting outside the boundary. Splash-report failures use the same door.
+`ApplicationFallbackHoldsBothFormattingAndListenerFailures` pins this fallback. A locked log file or a full disk must not turn into a second crash that
+carries the first exception's context away with it. (`SetObserved()` used to sit below the Syncfusion EditControl early-return, so that case — the one this
+handler exists to swallow — was never actually marked.)
+
+The same shape applies to native window calls whose refusal is cosmetic. `SetWindowTopMost` and `SetWindowLong` no longer throw: the window keeps the z-order or
+the style bits it had, and the code reports one Warn per error code. They threw into `SourceChanged` handlers and overlay ticks, where a refusal cost a lost
+repaint plus an Error every time the window moved; companion placement already refused this way ("Damage meter column switches…", where the panel sits still on
+a failed move) and these two now match it.
+
+One case sits between the two, and it is a data-loss bug rather than a crash: the reader lane's own step per line — slicing `line[27..]`, classifying chat, handing the chat type to the archive sink, asking the trigger hook about quick-share — runs outside all four parsers' catches, so a fault there reached the catch wrapped around the entire loop: one `Problem loading log file.` and every remaining line of the capture unread. That step is now guarded per line, with RepeatCap naming the offending text (a capped message must carry its evidence once, and without the line the fault is unfalsifiable), so a malformed line costs itself.
+
+Deliberately unchanged: the four line parsers keep their own per-line catch with RepeatCap'd voice — that is the parse law, not this one, and it costs a bad line
+rather than the night. The fact constructors still refuse an unrepresentable amount instead of clamping it (a refusal inside a line the parser already caught is
+contained by that catch, and a fake maximum is indistinguishable from a real one). `MeterColumnLayout`'s unknown-slot `ArgumentException` stays a developer-facing
+refusal: no setting reaches it, every `MeterSlot` has an entry pinned by `MeterColumnLayoutTest`, and a silently defaulted column width is the kind of layout bug
+nobody finds.
+
+## A rank formulation is not a sentence end
 
 The operator's report was the alarming kind: rows called **"II"** and **"III"** in the identity list.
 *"what in the world is parsing to that? that seems like a broken parser."* It was, in one branch of one
@@ -10036,7 +10595,7 @@ A scalewrought assailant -> Npc/R6-npcdb      An astral barnacle -> Npc/R1-targe
 A Woeful oracle          -> Npc/R14-shape
 over 77 of 2,752 names on Incogitable - not free, and only a word-quality win today.
 
-### R21's pool gate staleness: parked, re-asked, bounded (2026-11)
+### R21's pool gate staleness: parked, re-asked, bounded
 
 A cast token refused because its name was not yet in the entity pool is never reconsidered inside that pass - the
 evidence cursor walks each `EvCast` row exactly once - and a review asked for that to stop being implicit. The first
@@ -10052,7 +10611,7 @@ which stay parked at the cost of a handful of string refs re-checked once per fu
 an actual promotion). Grammar refusals (`LooksLikeEntityName`) and empty tokens heal nothing, so they are not parked.
 The bound is now genuinely what it was always meant to be: one full cadence after the name's first fact - the same as
 every other carried verdict. Pinned by `SpellEffectIdentityTest.ACastTokenThatReachesCombatLaterIsClaimedByACarriedPass`.
-### The spell database as the side witness: measured, useful, and not enough alone (2026-10)
+### The spell database as the side witness: measured, useful, and not enough alone
 
 The operator's proposal was that a caster-less spell should be sided by the data — *"it should show up with a class mask
 and level that's <= 250 to show that's from a player… [a mob's spell] should be > level 250 and not have a player class
@@ -10160,7 +10719,7 @@ gate** — compare per-person numbers, which is how the retired board census did
 
 Reproduce: `cd /tmp/eq-ab && dotnet run --no-build -c Debug -- <capture>` twice; the `AB name=` line moves, `dmg`/`hits` do not.
 
-### The cell carries the judgement, the hover carries the reasons (2026-11)
+### The cell carries the judgement, the hover carries the reasons
 
 The Spell kind landed and the window still read wrong to the person using it: a curse whose every fact landed on raid members
 hovered *"No Caster in Line"* — the weakest of R21's three proofs, and silent about the one question the row exists to answer
@@ -10267,7 +10826,7 @@ Guildmate*
    word
    cannot come back through another rule's clause.
 
-## Two capture gaps a hover question exposed (2026-11)
+## Two capture gaps a hover question exposed
 
 The question was about a row, not the parser: *"how did Bjpotratz damage players and monsters?"* — asked of the new fact clause
 on a real night's capture. Answering it properly turned up two things that never entered the capture, and required retracting an
@@ -10356,7 +10915,7 @@ name also hit others… or shown, since "hits itself" is a fact a reader can che
 facts.
 
 
-## The identity words were swept (2026-11): one style, casters named, and the Type column pays for its longest word
+## The identity words were swept: one style, casters named, and the Type column pays for its longest word
 
 An operator read the Names pane word by word and rejected most of them. Nothing below is a behaviour change — every
 verdict, ranking and cost law stayed as it was; what changed is the language between the rules and a person, plus one
@@ -10436,8 +10995,7 @@ The shortness law is asserted rather than remembered: every detail-free proof cl
 `Cast Tsikut's Chant of Frost Rk. III` and `In the Pet Map as Sancus's` are the two clauses that grow, and they grow because the
 name IS the proof; a new clause that wants more room rewords itself instead of widening the tooltip.
 
-Suite after the sweep: **1,681 passed / 10 env-gated skipped**, solution builds with **0 warnings**. `EQLogParser.Wpf.Test`
-(NamesTableTest's cell/width assertions) still needs its Windows run along with the other pending UI items.
+`EQLogParser.Wpf.Test` (NamesTableTest's cell/width assertions) still needs its Windows run along with the other pending UI items.
 
 ### Damage the capture never saw, and damage it invented
 
@@ -10528,7 +11086,7 @@ already credited to its owner; `ParseLine` takes the action without its stamp) a
 table,
 its cap, pets, self).
 
-## A fact carries what its line says, not what the registry thought (2026-11)
+## A fact carries what its line says, not what the registry thought
 
 `CombatCapture` used to ask `PlayerRegistry` four questions per event — attacker and defender on damage, healer and
 healed on heals — and wrote the answers into each fact's `Flags`: bit 4 "attacker looked player-side", bit 8 "defender
@@ -10597,7 +11155,7 @@ drift to explain") was wrong and is retracted: there is a difference, it favours
 retired per-raider census measured at +0.54 % raid-wide. The lesson generalises: **"the other engine already does this" needs a
 look inside the builder's UpdatePetMapping-equivalent, never an inference from how the log reads.**
 
-## A perf batch measured head to head: what five commits actually moved (2026-11)
+## A perf batch measured head to head: what five commits actually moved
 
 A reviewer asked what the last five commits improved, and the honest answer needed a measurement rather than five
 commit messages. Method: one temporary probe file, **untracked and byte-identical on every revision measured**, so the
@@ -10666,7 +11224,7 @@ both builds and read the process working set after EOF. A partial Core-only comp
 retention over the same lines) is runnable at both revisions but measures one slice of the pipeline, not the app, and a
 264-commit delta would attribute everything — the legacy engine's deletion included — to a single number.
 
-## Where a large capture's bytes actually are (2026-11)
+## Where a large capture's bytes actually are
 
 A heap snapshot beat an estimate. The ablation ladder above says what each *lane* costs when removed; it cannot say who
 *owns* the bytes that stay. So one snapshot of the running app on a large capture (object-type dump, retained sizes;
@@ -10709,7 +11267,7 @@ capacity, i.e. zero slack when the compaction law guarantees up to 100 %; 766 k 
 1.248 M; and 599 k live `DamageRecord` objects, which only exist between a parse and the next collection). And the gap
 between it and Task Manager is arithmetic, not a hidden store — see the next section.
 
-## Why Task Manager says 1.6 GB while the heap says 535 MB (2026-11)
+## Why Task Manager says 1.6 GB while the heap says 535 MB
 
 Same moment, same process: **working set 1.8 GB, private working set 1.6 GB**, against a managed snapshot of 535 MB and
 a GC heap reported as ~750 MB allocated. Four mechanisms, in the order they explain bytes:
@@ -10741,7 +11299,7 @@ plus Visual Studio's *dump → native heap / heap differences*, which is the onl
 app uses X".
 
 
-## Where ingest time and retained memory actually go, ablated at HEAD (2026-11)
+## Where ingest time and retained memory actually go, ablated at HEAD
 
 The perf-batch question ("are we closer to a faster load or a smaller footprint?") cannot be answered from the batch
 alone — it needs the shape of what is left. So one temporary probe ran the same 467 MB capture (`eqlog_Kizant_xegony-2.txt`,
@@ -10883,7 +11441,7 @@ for twice.
 
 ## Rows go cold, and what a chunk costs to remember
 
-### Review correction: publication and retention are part of the store (2026-11)
+### Review correction: publication and retention are part of the store
 
 The first implementation's codec round trips passed, but its concurrency and lifetime did not. Heal append cleared the only raw
 array before publishing its blob; a reader could receive a zero heal. Damage readers could race removal of the blob against
@@ -11018,7 +11576,7 @@ background path that already
   which is
   the next section. Classification is unaffected: 346 ms full, 5 ms carried afterwards.
 
-### The cold-chunk Deflate level: 9 → 7 (2026-11)
+### The cold-chunk Deflate level: 9 → 7
 
 Both codecs shipped on `CompressionLevel.SmallestSize` (zlib **level 9**) because the layout work needed a strong entropy
 coder to be
@@ -11147,7 +11705,7 @@ the classification pass the derive engine already owes. The merge is an ordinal 
 "Parallel loading: measured, shipped, and backed out" for what a seam did to cross-line carries and why that outweighed
 ~1.6x. Plan from the sequential row.
 
-## Parallel loading: measured, shipped, and backed out (2026-10-13)
+## Parallel loading: measured, shipped, and backed out
 
 Whole-file loads were read on two lanes for a day. They are not now, and the reason is not speed — it is that
 a cut in the middle of a file severs state the parsers carry between lines, and every repair for that is a
@@ -11255,7 +11813,7 @@ above become either line-local or merge-time reconciled (with the crit ones prov
 and progress semantics are re-derived rather than patched, and the identity-event duplication is accepted as
 work the re-derive pays for.
 
-## What the FCT overlay costs per number on screen (2026-11)
+## What the FCT overlay costs per number on screen
 
 Asked for RAM during **active parsing** — a live raid with the overlay up — and measured over Core's own overlay engine
 (no WPF, no Skia: `FctIngest.Accept` + `PruneExpired`, driven at frame pace by a temporary probe, deleted once these
@@ -11337,7 +11895,7 @@ Two cautions worth writing down because they cost time to learn:
   `dotnet test` host is blocked. So for ingest questions the repo's own headless tool plus targeted timers is the working
   path — which is why that spike having stopped building mattered.
 
-## The reader hands the parser one line at a time, and that handshake costs more than the parsers (2026-11)
+## The reader hands the parser one line at a time, and that handshake costs more than the parsers
 
 A Windows **sampling** export (`local/profiling/cpu.txt`, VS Functions view, whole-app session, PID total = 97,162 CPU
 samples) ranked the load for the first time across threads. Percentages are of *total process CPU for the session*, so
@@ -11451,7 +12009,7 @@ The reader and consumer publish these two milestones independently; neither queu
 last line was parsed. `ProcessedBatchTest` checks the acknowledgement while a sink blocks; `LogReaderCompletionTest` checks
 the composed reader question on Windows.
 
-## The damage parser reads word views; the per-line Split array is gone (2026-08)
+## The damage parser reads word views; the per-line Split array is gone
 
 The plan that killed the 374 B `Split(' ')` "Where ingest spends its time" named as the widest single allocation in ingest.
 Shipped first for the **damage** path; the completion for Cast
@@ -11495,7 +12053,7 @@ Related laws from the same work:
   (NOT through Words — a line that still wants the array must pay exactly what it paid before, one Split, no double
   scan). A set `Split` invalidates the word view. Every producer sets `Action`; tests that set both keep doing so.
 
-## The word-view migration finishes: cast, then misc — and `Split` loses its last production reader (2026-08)
+## The word-view migration finishes: cast, then misc — and `Split` loses its last production reader
 
 The two steps this chapter deferred landed within a day, with the same disposable-oracle discipline.
 
@@ -11532,7 +12090,7 @@ green at every step.
 cost the damage chapter booked is therefore *paid back by this step*: lines that fall through no longer pay the word scan
 AND materialize the array. These are pipeline-oracle walls (parse + derive + store walk), not load-to-idle.
 
-## What garbage a raid actually makes, and what it does to a cadence thread (2026-11)
+## What garbage a raid actually makes, and what it does to a cadence thread
 
 The question worth answering for people on old hardware is not "how many bytes does a load allocate" but **"does collection
 ever stop a thread that has to keep a cadence — i.e. the UI thread mid-fight"**. Measured with a temporary probe (run over a
@@ -11578,7 +12136,7 @@ lanes; deleted once these numbers landed):
   are **trades of CPU for footprint**, so they come after parse-side allocation is trimmed, which is exactly the sequencing
   the improvement map argues for.
 
-## The read loop was running on the UI thread (2026-11)
+## The read loop was running on the UI thread
 
 The symptom class this closes is *"opening last night's capture makes the numbers freeze"* — not slowly, for as long as a
 few hundred megabytes take to load. No surface was at fault: the meter, the fight list and the derive cadence all want the
@@ -11649,7 +12207,7 @@ the loader from being that work, it does not reorder the queue. The remaining la
 already measured: `Action.Split(' ')` in `LogProcessor` (29 % of ingest CPU, ~1.8 GB allocated), which needs the tokenizer
 change across all four parsers rather than a threading fix.
 
-## The Windows field run: what a 951 MB load costs, and what it no longer costs (2026-11)
+## The Windows field run: what a 951 MB load costs, and what it no longer costs
 
 The operator ran the reader-off-the-UI-thread build on the machine that reported the freezes, with `PerfReport=True` and
 `PerfStallMs=150`, over **`eqlog_Kizant_xegony-09-03-26.txt`** — whose local reference copy measures
@@ -11738,7 +12296,7 @@ long time"** on a stack with **nothing EQLogParser-shaped in it**, and the machi
 no thread runs). So the two halves of this chapter's law: a stall line means our thread stopped, and **a gap with no stall
 line means the machine stopped and we logged it anyway.**
 
-## Two memory trims: what the overlay costs per number is now ten times less (2026-11)
+## Two memory trims: what the overlay costs per number is now ten times less
 
 Prompted by "live raid seems to use more RAM than the load does" — a claim the analysis could not support (docs →
 "What garbage a raid actually makes", where gen2 never ran and a cadence thread's worst slip under 36× traffic was
@@ -11758,7 +12316,7 @@ Two tests hold it: `FctPlacementAllocationTest` budgets bytes per spawned number
 `GetAllocatedBytesForCurrentThread` can see an allocation at all, and `FctHitStateCopyTest` stamps a distinct value into
 every instance field by reflection and refuses one that did not travel — in `Clone` **and** in `CopyFrom` against a buffer
 pre-dirtied with different values, so a field missing from the hand-written copy list cannot pass by keeping a stale one.
-279 existing FCT readability tests pass unchanged: the lattice, its jitter and its cost maths are untouched, only who owns
+The existing FCT readability tests pass unchanged: the lattice, its jitter and its cost maths are untouched, only who owns
 the memory moved.
 
 **The reader's queue: 100,000 slots → 25,000, which is ~17 MB of a load's peak.** A `LogReaderItem` is a record struct
@@ -11774,7 +12332,7 @@ packing question), and a **live heap ledger** (one line every 30 s under `PerfRe
 deltas with pause ms, facts/heals rows vs slots vs slack, name pool, FCT live hits) so a player's own raid log can say
 what grew and whether their stalls coincide with gen2. Neither is assumed; the ledger is what would decide them here.
 
-## A fact row is 24 bytes: the clock, the vocabulary, and what a byte of mask needed (2026-11)
+## A fact row is 24 bytes: the clock, the vocabulary, and what a byte of mask needed
 
 Asked as "can we retain smaller facts — if there are only ~30 possible values, store them in a short". Half of that was
 already true and half of it was aimed at the wrong field, which is worth writing down because the answer changed what got
@@ -11896,8 +12454,7 @@ end to end without a new line of assertion.
 
 **Verification beyond the suite (Linux, this box)**: `CaptureReproducibilityTest` twice over
 `eqlog_Kizant_xegony-8-20-23.txt` (495 MB) and once over the EMU capture `eqlog_Ikkydruid_thj.txt` with `EQLP_EMU=1`, and
-`IncrementalClassificationTest.CarriedPassMatchesAFullReplayOnRealLog` on the live capture — all executed, none skipped,
-all passing. 1,752 headless tests pass solution-wide with zero warnings.
+`IncrementalClassificationTest.CarriedPassMatchesAFullReplayOnRealLog` on the live capture — all executed, none skipped.
 
 **The guards answer zero on real traffic — and say so when they don't.** Measured over two captures (a throwaway probe,
 deleted once it reported): `eqlog_Kizant_xegony-8-20-23.txt` — 3,635,724 facts, 140,270 heals → clock clamps **0**, masks
@@ -11915,7 +12472,7 @@ fixture reports coverage forever while checking nothing.
 that field buys, so it belongs with the chunking design rather than before it. The ingest spike's `.spool` files were a
 dev artifact and had to be regenerated after this change; nothing player-facing has ever persisted fact bytes.
 
-## What NPC means here, and why a pet-proof line outranks `Targeted (NPC)` (2026-11)
+## What NPC means here, and why a pet-proof line outranks `Targeted (NPC)`
 
 The word in this application is narrower than the client's. **NPC means none of player, pet or mercenary** — a
 hostile-shaped name with no ownership behind it. That is the definition the Names pane renders against, and it is now
@@ -11967,7 +12524,7 @@ and no possessive. The numbers here come from grep over `local/logs/` and from t
 
 ### How the precedence actually works, since "Certain" was never the whole story
 
-`Targeted (NPC)` writes Npc at `TargetedNpcStrength` (**65** since 2026-12, 70 before); R24's positive pet proof
+`Targeted (NPC)` writes Npc at `TargetedNpcStrength` (**65**, 70 before it); R24's positive pet proof
 claims **Certain (100)**. It no longer needs an exact strength/time tie and insertion order to beat that frame. The
 claim stays below the target-frame ladder so its guard can inspect all Player/Merc claims first. **A frame verdict
 that asserts a negative ("not a player") may not outvote an
@@ -12059,8 +12616,7 @@ own summary row; full-reference and compact-meter rows match. The disposable rea
 Player/Pet/Merc rows, defender-only pets, append/idle meter parity, ownership-only NPC pets, friendly-fire refusal
 and the charm-anchor exception. The tanking golden restores Akira's pet's **300** damage as its own row: raid total
 **16,082 → 16,382**, Akira's personal **7,905 unchanged**; percentage/rank changes follow the restored participant.
-Validation: **2,243 headless tests passed, 6 skipped**; full no-incremental solution build and explicit WPF-test build
-succeeded with **zero warning/error diagnostics**. The checkbox interaction remains a Windows release check.
+The checkbox interaction remains a Windows release check.
 
 **Named charm-row check:** the operator subsequently confirmed the merc omission was the fight list's unchecked
 Tanking dial; enabling it produced the same **325 rows** as the full-selection replay. They then asked about
@@ -12075,7 +12631,7 @@ named owner; the spell-data repair in "Charm ownership follows the spell's lands
 separate damage-folding issue. Tanking is not owner-folded in any case. The temporary assertion was deleted after
 verification.
 
-## The target frame ladder, measured: raising `Targeted (Player)` buys nothing (2026-11)
+## The target frame ladder, measured: raising `Targeted (Player)` buys nothing
 
 Asked: should a `Targeted` sighting carry more weight toward "this name is a player"? It already carries the most
 weight any line evidence can get. `R1-target` stamps a Player frame at `RuleStrength.Certain` (100) —
@@ -12110,7 +12666,7 @@ So: strength dials on the target frames are closed. Player coverage moves in the
 Player with no frame beside it is normal, not a bug. Probe measured 2026-11-17 and was deleted; the census lives here.
 
 
-## The spell data knows an AE heal. It does not know a player (2026-11)
+## The spell data knows an AE heal. It does not know a player
 
 Asked: use the spell table's Target slot — `SpellTarget.Targetringae = 45` and friends — to help decide who a player,
 since a ring/group heal proves the caster stood in our raid. **The shape half of that is true and was under-read here;
@@ -12154,7 +12710,7 @@ name not NPC-shaped" buys **~1–2 names per capture** (`Amengi`) at ~80 % preci
 mostly wrong. R15's ceilings are unchanged by all of this; probe measured 2026-11-17 and was deleted.
 
 
-## Being healed by a group spell: measured as identity evidence for the HEALED name (2026-11)
+## Being healed by a group spell: measured as identity evidence for the HEALED name
 
 The proposal is asymmetric in a way an earlier section missed: the CASTER of an AE/group heal is unreliable (mob
 shamen cast splashes), but the name on the RECEIVING end may be reliable, because a splash that lands on you came from
@@ -12218,7 +12774,7 @@ Not built yet: the lane lands inside `ApplyHealedByRaidSide`, whose cursors and 
 lane needs its own cursor and its own vocabulary word, `R15-groupsplash`). Probe measured 2026-11-17 and was deleted.
 
 
-## The fight list announces when the gesture ends (2026-11)
+## The fight list announces when the gesture ends
 
 Reported from the field after the legacy table was deleted (`bf9318fb`): *"right click … immediately selects a row"*,
 *"if i click select all it ends up like doing two selections"*, and the memory of a guard that is gone — *"i had some checks
@@ -12329,7 +12885,7 @@ split, `HitLabel`) are all reductions, so the increase is expected to be the car
 index blocks) rather than the capture; that question belongs to the same revisit as Clear All. Quoted as reported, not as a
 measurement protocol: one open, one machine, no journal attached.
 
-### "i unselect rows and want the summary to stop showing that row" (2026-11)
+### "i unselect rows and want the summary to stop showing that row"
 
 The request sounds like one line of code and turned out to be three shut doors, all reported as *nothing happened*:
 "ctrl+right click to deselect
@@ -12418,7 +12974,7 @@ it when the box empties (the pane already refuses to search an empty box, and le
 reason) gives the
 two-keystroke resume that the original comment described.
 
-### Group and Un-select group act on the row the pointer opened the menu on (2026-11)
+### Group and Un-select group act on the row the pointer opened the menu on
 
 Reported: "when i right click it does not offer to unselect a group if you have not already selected one, i expect to be able
 to right click then unselect
@@ -12482,7 +13038,7 @@ cannot point the menu at somebody else's span.
 Tests: `GroupSectionSelectTest` (headless, plain assembly) — pointer-only un-select, pointer wins the enable test, select-adds-keeps-others, one pull per section,
 dividers carry no section, and the fallback chain keeps both items usable with zero and two selections.
 
-## What Clear All means when there is no store to wipe (2026-11)
+## What Clear All means when there is no store to wipe
 
 The deleted legacy table had a **Clear All** that wiped `FightManager`'s store. It was missed the moment the derived pane
 became the fight list, and the ask came back in the operator's own words: *"litereally clear all the fights. take me back as
@@ -12554,7 +13110,7 @@ section) — and
 longer exist,
 which is the same class of bug as announcing one behind an open menu.
 
-## The dropdown that did nothing: a repaint is an ask, not a call (2026-11)
+## The dropdown that did nothing: a repaint is an ask, not a call
 
 The report named the asymmetry, which is why it was findable: from a summary pane's right-click menu a verdict works every
 time — the
@@ -12630,7 +13186,7 @@ exist for it —
 the repaint was delayed
 rather than lost.
 
-## Say what a name is, from wherever you noticed it (2026-11)
+## Say what a name is, from wherever you noticed it
 
 > **In one breath:** one `IdentityVerdictMenu` builds the "**Set <name> as ▸**" cascade for four panes out of
 > `IdentityVocabulary.TypeOptions`, so the words, their order and their write cannot drift per grid; it replaces the
@@ -12744,7 +13300,7 @@ would blank the boards, and nobody pressing "refresh" means that. A derive pass 
 own — this menu item is "now",
 not "on the cadence".
 
-## The damage board's golden, and what freezing it found (2026-11)
+## The damage board's golden, and what freezing it found
 
 **Why: refactor insurance, not coverage theatre.** The next move on `DamageStatsBuilder` is to stop computing the same
 thing three times — one record walk that fills per-name accumulators ("measure"), then arithmetic over those
@@ -12922,7 +13478,7 @@ appeared as new CS8601 "possible null reference assignment" warnings. The rule i
 do, and correctly): it is that in Core — `Nullable=disable`, consumed by an `enable`d test assembly — a file-level
 annotations directive is a **public-visible change**, so the new fields were declared without `?` instead.
 
-## Where a board build's time actually goes (2026-11)
+## Where a board build's time actually goes
 
 Three boards, one set of laws, and the phase table that says so. Measured on `local/logs/live/eqlog_Incogitable_xegony.txt`
 (1,901,078 damage facts, 403,740 heals, 4,646 rows) through a **whole-capture selection** — 4,452 fights, 1,720,467 outcomes,
@@ -12994,7 +13550,7 @@ handed —
 which is also the window an operator gets from Select All, and the one a "just refresh it" feature would otherwise re-pay per
 click.
 
-### What a damage row's state actually is, which is why the delta phase does not start with `Merge` (2026-10)
+### What a damage row's state actually is, which is why the delta phase does not start with `Merge`
 
 Starting the delta phase meant writing merge for "the accumulator", so the first act was to read what one is. It is
 `PlayerStats : PlayerSubStats : Attempt` — **and that object is the board**: it implements `INotifyPropertyChanged` and
@@ -13044,7 +13600,7 @@ of damage, window the biggest single heal term), so no machine-specific effect e
 those loops
 is not on the table: the phase boundary is "count less", and counting less needs one of the two structural moves above first.
 
-### How much a whole-row cache would actually save, measured before building one (2026-10)
+### How much a whole-row cache would actually save, measured before building one
 
 The obvious alternative to merge was reuse at row granularity: hand the **untouched rows** over intact, rebuild only the rows
 the new facts
@@ -13089,7 +13645,7 @@ still walks ~80 % of the records on a 5-second raid refresh, it is not the win i
 relief for the
 same pain needs no counting at all: keep the previous board on screen while a new one is built.
 
-### Retiring probes that no longer protect production (2026-11)
+### Retiring probes that no longer protect production
 
 The test audit removed three gated probes after executing them once more on `eqlog_Incogitable_xegony.txt`.
 Their source is preserved at commit `a843c6c7`, not as runnable commands in the current suite:
@@ -13114,7 +13670,7 @@ The audit also removed two exact duplicates from `StringCacheTest`, the test of 
 actual merge boundary, shape and duration. No production code changed. Compaction/capacity tests requiring replacement,
 weak tests requiring stronger assertions, and GC scheduling tests remain for separate work rather than losing their coverage.
 
-## What board builds create, and where that stops (2026-10)
+## What board builds create, and where that stops
 
 The walks are near allocation-free per record — pet-row names, sub-stat rows, `healer|healed` keys and identity answers are
 all memoized
@@ -13146,7 +13702,7 @@ its parse list — a hidden window holding last night's raid and every row of it
 `ActiveDataCleared` drops them there too,
 the law `DamageStatsBuilder.ClearedByActiveData` documents.
 
-## A refresh that answers for itself: the cost budget on unasked passes (2026-11)
+## A refresh that answers for itself: the cost budget on unasked passes
 
 The question this closes is *"when a row is added or removed, or a pet is claimed, how does the user know the refresh worked —
 is there some type of notification?"* (asked while an untracked working note — `summary-refresh-notification.md`, one of the
@@ -13270,7 +13826,7 @@ fourth condition re-derives it into the wrong branch. (2) The reason word is loa
 forced
 announces too, whatever the reason" would decline Refresh. The gate reads the reason, not the flag.
 
-### The same boards on the biggest local capture, before and after (2026-11)
+### The same boards on the biggest local capture, before and after
 
 Incogitable (344 MB) is where the builder work was designed, and its shape flattered some of it: 4,646 rows over **414
 players**,
@@ -13324,7 +13880,7 @@ notice design this
 replaced was §14 of that same untracked note — a pointer that resolves only on the machine which wrote it, which is why what
 SHIPPED is told here.
 
-### The heal window's second pass: what was actually being paid for (2026-11)
+### The heal window's second pass: what was actually being paid for
 
 Healing was the biggest single phase in the app (`window ~2.7-3.2 s` of a whole-night build), and reading the loop found no
 arithmetic to
@@ -13381,7 +13937,7 @@ reading as "a little less healing". The fixture spell is `Ancestral Aid VI` (spe
 negative damage); the
 golden board runs with AOE on, which is why this path needed its own tests.
 
-## Why a long night of small fights costs what it costs (2026-11)
+## Why a long night of small fights costs what it costs
 
 Asked why stats building used to crawl when many fight rows were selected, **"not all raids … a lot of rows that had
 a little bit of data like from group content"**. Every capture the earlier work measured was the opposite shape — a
@@ -13432,7 +13988,7 @@ fight's range separately; and, on the app side, the cost budget that already ref
 `MaxOutcomes` — a group-night select-all is far over that ceiling, so nothing rebuilds it 2×/second behind your back
 even though it would be legal to.
 
-### The projection carry asks the same weaker question, and the settle pass drops to 0 ms (2026-10)
+### The projection carry asks the same weaker question, and the settle pass drops to 0 ms
 
 Fixing the boards' staleness was half of it. The same moved digest was also driving the *engine*: `FightProjectionCache`
 gated its carry on
@@ -13494,7 +14050,7 @@ ending it too, and an equality test that building P1-then-appending-equals-build
 the actual builders.
 Not built yet; the measurement is what this section is for.
 
-### A healing block is a second, not a line (2026-10)
+### A healing block is a second, not a line
 
 The pass-2 leftover of the section above: survivors were still wrapped **one `ActionGroup` per record**, each with its own
 `Actions` list
@@ -13583,7 +14139,7 @@ here, and two fewer passes over the name list at raid scale.
 Reproduce with the throwaway row-shape probe (same setup as `MeterBoardCostRealLogTest`: classify, index, project, then
 time boards over K rows taken from one size band, printing ms, µs/row and allocated MB per phase).
 
-### The merge primitive already exists, and it had two holes (2026-10)
+### The merge primitive already exists, and it had two holes
 
 The damage summary's **Group View** already does the shape of work the delta phase needs: `StatsUtil.ResetPlayerStats(target)` →
 `MergeMemberRanges(members)` for the union of uptime → `StatsUtil.MergeStats(target, member)` per source → `CalculateRates` +
@@ -13617,7 +14173,7 @@ are the members themselves, rendered from their own rows. So B = a recursive fol
 fight/segment) cell
 cache, measured against the bar in "How much a whole-row cache would actually save".
 
-### How B gets built: the cell cache and the recursive fold (design, 2026-10)
+### How B gets built: the cell cache and the recursive fold
 
 > **SUPERSEDED (2026-11).** Layer 2 was designed, built, measured over real captures and then reverted before it
 > reached a user, because no door in the application asks the question it answers — see
@@ -13654,7 +14210,7 @@ build with a bad
 goldens), cache second.
    A wrong fold is silent and plausible - the same reason `MergeStatsAccumulationTest` enumerates counters rather than sampling.
 
-### The three preconditions behind the cell cache, checked before building it (2026-10)
+### The three preconditions behind the cell cache, checked before building it
 
 Before writing a recursive fold, three assumptions in B's design were tested rather than trusted. `CellFoldPreconditionsTest`
 keeps them
@@ -13697,7 +14253,7 @@ already exists
 (`416f2879` made it non-destructive for the running build); what B adds is the requirement that a cell boundary be a drained
 one.
 
-### The fold exists, and it is proven against one uninterrupted count (2026-10)
+### The fold exists, and it is proven against one uninterrupted count
 
 `StatsUtil.MergeStatsRecursive(to, from)` folds a partial row into another: `MergeStats` for the scalars, child rows reached
 through the
@@ -13723,7 +14279,7 @@ history) is order-dependent inside a build, so the cell cache has to replay that
 has a proven fold
 to sit on top of.
 
-### What the cell cache has to buy at two boundaries, read from the code before building it (2026-10-09)
+### What the cell cache has to buy at two boundaries, read from the code before building it
 
 Phase B is one bullet in a working doc and three chapters here. Reading the two classes it would change
 (`FightSummarySource`, `DamageStatsBuilder`) turns it into **two layers with different risk, and one measurement that decides
@@ -13797,7 +14353,7 @@ measurement, then layer 2 only if that number clears the group-content shape. B1
 boundaries and is
 designed against the same probe, so it follows rather than arriving beside it.
 
-### Layer 1 is built: a grown row continues instead of re-walking (2026-11)
+### Layer 1 is built: a grown row continues instead of re-walking
 
 The section above decided the order of work; this one records layer 1 landing, what it measured on two captures, and the two
 laws its first draft nearly broke.
@@ -13875,7 +14431,7 @@ walk of
 materialized records); layer 2's gate has since been measured, and §"Fold-at-publish measured: the cost cleared the bar, and
 the row on screen did not" answers it.
 
-### Fold-at-publish measured: the cost cleared the bar, and the row on screen did not (2026-11)
+### Fold-at-publish measured: the cost cleared the bar, and the row on screen did not
 
 The boundaries section above left one number outstanding: publishing a carried cell into a fresh display row, on **group**
 content, may
@@ -13969,7 +14525,7 @@ cross a record
 threshold — to be tuned against these numbers with a reused-versus-recounted measurement. This was the historical plan;
 the following section records its implementation and reversal.
 
-### Carried counted cells were built, measured and reverted (2026-11)
+### Carried counted cells were built, measured and reverted
 
 Layer 2 shipped as `DamageCellStore`: one detached `PlayerStats` graph per name plus a per-block resume point, so a
 build over a capture it had already counted walked only what materialization appended. It worked, measured headlessly
@@ -14009,7 +14565,7 @@ Deleted with the feature, not parked: `DamageCellStore`, the builder's open/stor
 answers. The §"What a cached walk is allowed to carry" decisions below stay useful as the record of what reference
 stability costs and buys, since layer 1 depends on exactly that reasoning.
 
-### What a session is holding, printed (2026-10)
+### What a session is holding, printed
 
 *"~330 MB of a 419 MB heap is not rows."* That sentence came out of the first Windows field run as an **inference** — a
 dotnet-gcdump taken by hand,
@@ -14095,7 +14651,7 @@ And the standing caveat: **neither line has ever run on Windows.** The formattin
 a real WPF session — where
 the gap lives — is what the next field run is for.
 
-### What a cached walk is allowed to carry, decided from the code (2026-10)
+### What a cached walk is allowed to carry, decided from the code
 
 Phase B's cell cache has to answer one question before it exists: **the walk learns things while it walks — can a partial
 walk's output be
@@ -14197,7 +14753,7 @@ pinned: it resets per build
   shorten by skipping whole
   windows rather than by remembering names.
 
-## A capacity hint belongs to the door that reads, and the door that read nothing was holding 196 MB (2026-10)
+## A capacity hint belongs to the door that reads, and the door that read nothing was holding 196 MB
 
 The second Windows field run (`PerfReport=True`, `PerfEnabled=True`, capture `eqlog_Kizant_xegony-09-03-26.txt`) printed one
 line one second after startup that decided a whole piece of work:
@@ -14241,7 +14797,7 @@ actually append facts from.** Being wrong is allowed (growth still doubles, and 
 about a different open than the one you are sizing is not, because the modes are three and a two-way test silently picks the
 worst one.
 
-## What 951 MB actually retains, printed rather than inferred (2026-10)
+## What 951 MB actually retains, printed rather than inferred
 
 The same run, at rest after the load:
 
@@ -14269,7 +14825,7 @@ on this
   knowing
   whether its 472 MB is cast history or timed records, and two increments on existing lock paths is the cheapest possible way
   to ask.
-  **Both counters and that `kept casts=N timed records=N` term are gone now** (2026-11, with `HeapLedger` itself): once the
+  **Both counters and that `kept casts=N timed records=N` term are gone now** (with `HeapLedger` itself): once the
   line stopped printing they were
   parse-path work answering a question nobody was asking — the same law that deleted an event pump for three closed grids.
   What they answered stays recorded
@@ -14328,7 +14884,7 @@ value** so a
 future lane cannot print an anonymous line — the door-naming rule is now enforced at compile time rather than by a log
 convention.
 
-## Re-running the same capture after the fix: the idle session, and what one click costs in *memory* (2026-10)
+## Re-running the same capture after the fix: the idle session, and what one click costs in *memory*
 
 Same machine, same 951 MiB capture, ~32 minutes later. The startup open is the fixed path:
 
@@ -14374,7 +14930,7 @@ ledger caught
   1,931 ms |
   walked 4,660,915 records -> 5 lines … budget 300 ms`** — B13 reproduced exactly (walk 1,884 vs 1,838 ms).
 
-## What a board build allocates, and the distribution nobody opens (2026-10)
+## What a board build allocates, and the distribution nobody opens
 ### The healing board's `window` stage: two per-record copies, not strings
 
 The Windows field run named the healing build as the biggest single stage in the app (`healing full 1434 ms | 468.7 MB | window
@@ -14735,7 +15291,7 @@ lookup is not a field read, and
 its subject reports the
 opposite conclusion. Any per-record gate must be a `static readonly bool` resolved once.
 
-## The capture moved; my selection did not (live tail, 2026-10-08)
+## The capture moved; my selection did not (live tail)
 
 The first run with a **growing** log (`logsim` replaying into the monitored file, FCT off, meter + overlays open) answered the
 question every number in this file up to now could not: what a derive pass costs when the capture never stops. It also
@@ -14821,9 +15377,9 @@ grep -oE "board ask \[[A-Za-z]+\]" EQLogParser.log | sort | uniq -c
 grep -E "chart\.rendergap|UI STALL" EQLogParser.log | tail -40
 grep -E "UI perf" EQLogParser.log | tail -3   # read chart.rendergap, chart.update, stats.damage, stalls, heap/ws/alloc
 
-## Snapshot unless a name changed what it is (2026-10-08)
+## Snapshot unless a name changed what it is
 
-### Review correction: queue the question, and watch the answer actually built (2026-11)
+### Review correction: queue the question, and watch the answer actually built
 
 A summary request now carries the **pane's snapshot** beside its selected row references. Materialization must use that
 snapshot's
@@ -15473,7 +16029,7 @@ invented pair
 would appear in `GetPetMappings()`, which is exactly what `RegistrySeed` walks to decide Pet-ness. An event was the echo; the
 row is the sound.
 
-## A repeat window slides only if its trigger says so (2026-10-09)
+## A repeat window slides only if its trigger says so
 
 A long-time GINA user ported an Exp-tracking trigger — match `^You gain (party )?experience`, reset 3600 s, name carries
 `[{counter}]` — and
@@ -15540,7 +16096,7 @@ is not what the option changes — only the anchor is); plus the anchor as a fac
 zero-second window meaning
 "no accumulation across seconds" rather than "never reset".
 
-## Where we stand: performance, and the refresh nobody asked for (2026-10-09)
+## Where we stand: performance, and the refresh nobody asked for
 
 An orientation chapter on purpose, and deliberately short. Every figure quoted here belongs to a section named at the end of
 its paragraph; `docs/perf-memory-status.md` (ids **B**/**C**) and `docs/incremental-summary-refresh.md` (**Phase B**) remain the
@@ -15662,7 +16218,7 @@ floor it bought
 nothing). → "Non-goals" in `docs/perf-memory-status.md`, "A histogram nobody asked for", "How much a whole-row cache would
 actually save".
 
-### Clear claim forgets everything — which is what makes it the repair (2026-10-09)
+### Clear claim forgets everything — which is what makes it the repair
 
 > **Renamed to "Reset" on 2026-11.** The heading stays: this section records the decision, and tests cite it by these words.
 The label
@@ -15795,7 +16351,7 @@ must be re-derived from the local decompile rather than mourned.) Current dispos
 | `roster-import-plan.md` | **live (mostly landed)** | identity-memory work remaining: class reads through `IdentityLookup`, the write-site twin census, the `"You"` audit, the invariant test |
 | `continue-notes.md` | **live** | the next perf targets with their numbers, the still-open clear-on-empty question, and the OpenCellPopup handler stack |
 
-## The ledger counts dotnet seconds, so a stale row is a run-order question (2026-10-09)
+## The ledger counts dotnet seconds, so a stale row is a run-order question
 
 `ClassificationReportTest.ANameKnownOnlyFromOlderLogsIsStillOnTheList` failed on a Windows run and had passed on a Linux
 run of the same tree — same code, one assert (`row` was null: the ledger-only name never reached the census list). The
@@ -15837,7 +16393,7 @@ compared dotnet-second stamps against `DateTimeOffset.UtcNow.ToUnixTimeSeconds()
 the verdict expiry off entirely on every real row. Any future guard has to clamp within this unit and say so in
 `StaleVerdictsExpireAgainstTheNewestSighting`.
 
-## The take-back icon takes everything back (2026-11)
+## The take-back icon takes everything back
 
 Two field sentences, in the operator's words: "if the reset ends up with the same result at least the user knows that it
 tried", and "just leave the valid values in the dropdowns and if you want to reset things you click the calculator". They
@@ -15896,7 +16452,7 @@ handler, then hidden by `RecalcOverlay`: never before a **500 ms floor** (under 
 the click was heard — this is the *inverse* of `DeferredBusyState`, which delays showing for the same reason from the other
 side), then at the first of **the pass landing** (`EventsDerived`, signalled before its 2 s census throttle, because the click
 owed its answer as soon as the pass ran) and a **5 s hard cap** — a bulk load parks both derive lanes, and a label that waits on
-a pass that may not come for minutes would read as a frozen row. Three things the label had to be told (2026-11, all three
+a pass that may not come for minutes would read as a frozen row. Three things the label had to be told (all three
 found by
 reading this paragraph against the code): a census pass **replaces the row instance** every ~2 s while it rests unlabelled, so
 `MergeInto` restamps the row found by name or the notice vanishes mid-flight; the state is ONE name, so a second click first
@@ -15919,7 +16475,7 @@ sees the click happen, waits for the word to come down, and knows which case the
 NamesTable wiring — the icon, the label lifecycle, the blank-open owner list — is pinned in `EQLogParser.Wpf.Test` and needs a
 Windows run to count as measured.
 
-### A take-back keeps its row, reading what it did (2026-11)
+### A take-back keeps its row, reading what it did
 
 The verb removes memory, and for a name whose every claim came from memory that left **nothing to list**: the row the operator
 clicked on disappeared out of the window the click happened in. Two readings of the field report were offered by the same person
@@ -15951,7 +16507,7 @@ Unknown at all. Pinned by `RecalculateIdentityTest` (`ATakenBackNameStaysOnTheLi
 `TwoTakeBacksBothKeepTheirRows`, `AnExplicitUnknownVerdictIsNotATakeBackAndStampsNothing`) and by the vocabulary coverage in
 `IdentityVocabularyTest`, which now has to know the word or the census test fails.
 
-## A board belongs to the capture that asked (2026-11)
+## A board belongs to the capture that asked
 
 A review of this branch asked which capture a queued board build answers to. The answer used to be "whatever is on screen
 when it
@@ -16011,7 +16567,7 @@ scan (declaration name counted across the whole corpus, tests, xaml and Tools), 
 added;
 everything else it printed predates the branch.
 
-## Three boards, three workers: what fan-out buys, and what it cannot (2026-11)
+## Three boards, three workers: what fan-out buys, and what it cannot
 
 `MainWindow.BuildBoards` materialized a selection and then built damage, tanking and healing **in a line**. The three calls
 share no
@@ -16104,7 +16660,7 @@ shape `Decide` prices. Re-measure recipe: drive `UnaskedRefresh.OutcomeCount` �
 builders on one materialized selection, shapes **alternating**, worst-of-2 (the probe harness was deleted after reading, per
 the gated-test law).
 
-## A window is searched, never walked (2026-11)
+## A window is searched, never walked
 
 **Review correction (2026-11):** the unordered fallback selected all matching heals but returned them in arrival order, while
 the
@@ -16277,14 +16833,10 @@ live in ReleaseChecklist. No responsiveness or memory improvement is claimed fro
 on-demand behavior fails that gate, the fallback is fresh-list binding plus EnableDataVirtualization, with whole-list search and
 its unbounded per-census grid cost; this remains a fallback, not a second shipped mode.
 
-Amendment verification (the page-number work above): **2,056 headless tests passed, 9 gated tests skipped**, and the full
-non-incremental solution build including the Windows test assembly reported **0 warnings and 0 errors**. Built is not run: what
-the pager says, what the strip says, and where the pager stands on a realized grid stay ReleaseChecklist items.
-
-Correction verification on Linux: **2,026 headless tests passed, 9 gated tests skipped**; the full non-incremental solution
-build, including the Windows test assembly, reported **0 warnings and 0 errors**. The Windows assembly was built, not run.
-An earlier run also hit the pre-existing timestamp-boundary flake in ImportingTheSameMapTwiceChangesNothing (the two imports
-crossed a wall-clock second); two complete reruns passed without changes to that unrelated test or import path.
+Built is not run: what the pager says, what the strip says, and where the pager stands on a realized grid stay ReleaseChecklist
+items, and the Windows test assembly compiles here without executing. One caveat recorded while this work landed: the
+page-number work is unrelated to the pre-existing timestamp-boundary flake in `ImportingTheSameMapTwiceChangesNothing` (the two
+imports cross a wall-clock second), so a red there is not evidence about paging.
 
 **What the strip and the pager say (2026-10-13).** The report was that one of those numbers lied by omission: "it's not very
 obvious" how many pages exist, and "the Showing text in the title is also confusing considering it lists the total not how many
@@ -16402,7 +16954,7 @@ page an operator walked to stays theirs until they move it or ask something. Nar
 jump
 *is* the answer, and it pairs with `ShowRowAt`, which now fires only on `PageDecision.JumpToSelection`.
 
-## A sort the source does not carry is a sort that stops holding (2026-11)
+## A sort the source does not carry is a sort that stops holding
 
 **Historical implementation:** the merge-based repair below was replaced by the globally ordered paged index described in
 "Identity Table paging". The comparison laws and tests remain; there is no MergeRows method or grid-bound whole-census
@@ -16471,7 +17023,7 @@ violation, so on a Name sort (the usual case) it never rewrites; insertion is `l
 one `NameRow` per newcomer, which the merge already built.
 
 
-### The class the window writes and the class the log watched (2026-11)
+### The class the window writes and the class the log watched
 
 Report: "i can change type but not class. the dropdown comes up, i click, and it goes away" — accompanied by two lines of its
 own log:
@@ -16533,7 +17085,7 @@ Pinned by `ClassColumnPrecedenceTest` — including the direction that must NOT 
   **_Preview Parse**: those three are the panes you read a capture with, in the order you use them, and a line
   through the middle of one group is how a menu starts looking like two groups that were never there.
 
-## An unchanged fight row is not rebuilt every pass (2026-11)
+## An unchanged fight row is not rebuilt every pass
 
 During a live raid the cheap derive lane runs about twice a second, and `DerivedFightRows.Build` paid for it in full every
 time: a fresh `DerivedFightRow` plus roughly six formatted strings (`Key`, `Begin`, `Last`, `Duration`, the tooltip's
@@ -16608,7 +17160,7 @@ look like they do exactly that and are the reason this took so long to see — t
 outside the
 bounds you chose, which only shows up when the list is taller than the anchor. `UIElementUtil.OpenCellPopup` carries the note.
 
-## A recognized line is taken: the tilde, the target frame and the achievement (2026-11)
+## A recognized line is taken: the tilde, the target frame and the achievement
 
 `PreLineParser` exists to answer one question cheaply — *"can I settle this line right here?"* — and its boolean is
 the answer to a second one nobody had been honouring: `LogProcessor` hands a line to
@@ -16642,7 +17194,7 @@ tail; it goes through `ReportEvidence` now, which is the one place that knows an
 returns true", because a guard that claimed *every* line would satisfy "the tilde line was dropped" while quietly
 deleting the raid (`LineParsersTest`, PreLineParser region).
 
-## AA ranks on the family table, and the name the data classed two ways (2026-11)
+## AA ranks on the family table, and the name the data classed two ways
 
 The operator handed over four ability names — Guardian of the Forest, Group Guardian of the Forest, Lay on Hands
 (→ Player + Ranger/Ranger/Paladin) and Life Burn (→ Player + Shadow Knight). Three became family rows. The fourth
@@ -16830,10 +17382,15 @@ ready controller. The library remains responsible for decoding, caching and disp
 clock reflection, frame rewinding, collector changes or new dependency is introduced.
 
 `AnimationOptInMarkupTest` pins the status template's paused-start opt-in. Windows-only `VisibleGifAnimationTest` covers
-initially hidden loading, effective ancestor visibility, source replacement, unload/reload and late enable/disable using a
-two-frame in-memory GIF. The fixture uses a small off-screen WPF window to exercise real IsLoaded/IsVisible semantics rather
-than asserting a hand-supplied visibility value. These tests build on Linux and require Windows to execute. Confirm real
-Trigger Manager status icons animate only while visible. Subsequent operator verification found the hidden repeating
+initially hidden loading, effective ancestor visibility, source replacement, unload/reload and late enable/disable using the
+app's packaged `waiting.gif`. A Windows report showed all four tests timing out in their common fixture constructor before
+any playback assertion. Switching the old 1×1 in-memory GIF to the packaged resource did not resolve this: the next
+Windows report showed `window loaded=False, image loaded=False, animation loaded=False, controller=False`. Decoding had
+not begun, so the GIF format was not the established cause. The fixture now roots its visual on a directly owned, visible
+but off-screen `HwndSource` on the test STA, avoiding the off-screen Window that never raised Loaded. It still asks real
+IsLoaded/IsVisible and ancestor transitions rather than supplying a fake visibility value. Timeout diagnostics distinguish
+native host attachment from image loading and controller creation. This change builds on Linux but requires a Windows run.
+Confirm real Trigger Manager status icons animate only while visible. Subsequent operator verification found the hidden repeating
 clocks paused, including after source replacement, while visible GIFs still animated. Memory behavior improved as recorded
 above; this does not establish a complete cause or cure of every post-load allocation. The temporary report code is removed.
 
@@ -16864,7 +17421,7 @@ classes paid that *per test* — most of the suite's wall time. One shared store
 shared store saw the data); everything mutable is still cleared per test, and a test needing a store under different conditions
 builds its own.
 
-**Moved to where the garbage actually dies (2026-10-13, field).** The post-load pass above fired synchronously at
+**Moved to where the garbage actually dies (field).** The post-load pass above fired synchronously at
 "Finished Loading Log File" — which on the two-lane load this was measured against landed *before* the first full derive
 (2,940 ms over 11 M facts) and the three-board fan-out, which allocate more than the read itself. The field file shows the
 order exactly:
@@ -17077,7 +17634,7 @@ The reader already bounds its queue at 25,000 lines plus a 5,000-line batch; liv
 The main remaining opportunity is to stop retaining obsolete object graphs, then consider fact-backed streaming for boards
 and charts. More frequent collections cannot reclaim the strong references above.
 
-## Retention fixes at 35420fcf, verified on the same captures (2026-11)
+## Retention fixes at 35420fcf, verified on the same captures
 
 The three lifetime gaps above are fixed, and two of the smaller candidates landed. All numbers below re-measured with the
 same headless harness shape (load through `LogProcessor`, classify, project, materialize every row, build both boards,
@@ -17122,7 +17679,7 @@ Not taken: R7 aggregate compaction (small on both captures - its per-edge timest
 counter that must preserve arrival order), spell-history packing and fact-backed board walks (the standing architectural
 candidates from the review).
 
-## Four closed working docs retire: what they built (2026-11)
+## Four closed working docs retire: what they built
 
 Per the rule at "The working documents under `docs/`, and what each still owes": each of these shipped its feature, moved its
 durable half into this file, and was deleted rather than archived. Recorded here so the file names do not become orphans.
@@ -17232,9 +17789,7 @@ name ids
   comments no
   longer cite deleted tooling; trigger readers feed TriggerProcessor rather than the combat ParseLane or ambiguity store.
 
-Linux validation: full non-incremental solution build, **0 warnings / 0 errors**, including the WPF assembly; headless suite,
-**2,084 passed / 9 skipped**. Windows execution is still required for the WPF regressions and the realized-grid release checks;
-a Linux build is not their result.
+A Linux build is not a WPF result: the WPF regressions and the realized-grid release checks stay owed on Windows.
 
 ## Branch review revalidation: preserve the contracts behind the code
 
@@ -17245,8 +17800,8 @@ body. `StartAsync` now treats `OperationCanceledException` as expected only whil
 cancelled, logging at Debug without a stack; initial-read and tail catches also handle that base exception with the
 same ownership filter. An unrelated cancellation exception still reports a load failure. `LogReaderCancellationTest`
 exercises both outcomes at the outer boundary and restores its temporary logger configuration. It builds on Linux
-but requires Windows execution. The unused `DamageOverlayLifecycle.LatestActivityOrdinal(rows)` overload was
-removed; the remaining door requires a clock and refuses future-dated rows.
+but requires Windows execution. Meter opening now uses `MeterArrivals`' original ingest receipts, not row timestamp freshness;
+captured future-dated records count immediately. The current clock contract is under "Damage overlay: fight accounting and display retention".
 
 The review's higher-severity meter suggestions were not adopted. Its unstable sorts reproduce the full builders'
 existing shared expanded/top-level ranking; `EqualAndZeroTotalsKeepTheBoardsTimestampBlockOrdering` already covers
@@ -17260,10 +17815,9 @@ Other rejected claims already have contrary evidence: `RecordsStore.Add` binary-
 with `AuxiliaryRangeWalkStopsBeforeFutureRecordsWithoutLosingLaterWindows` exercising the ordered annotation scan;
 `ParsePreviewPublicationTest` disposes short-lived panes through `using`, while the app host intentionally retains
 one pane for its lifetime; and both hit-type lookup representations derive from one vocabulary, with the span
-implementation retained by measurement. The clock expressions are not interchangeable either:
-`DateUtil.ToDotNetSeconds` returns whole seconds, while `TimeSpan.TotalSeconds` retains fractions. The overlay's
-fractional reset boundary prevents replaying damage already present in the click's log second. No mechanical clock
-replacement, speculative dispatcher-shutdown machinery or broad whitespace rewrite was made.
+implementation retained by measurement. Meter Reset now cuts at a captured fact ordinal, so it distinguishes two arrivals in the
+same log second without a fractional timestamp boundary. Log seconds still determine amounts and durations; monotonic receipt time
+determines visibility. No speculative dispatcher-shutdown machinery or broad whitespace rewrite was made.
 
 ## Ordered-ingest performance review: remaining parser work
 
@@ -17384,27 +17938,19 @@ Encoding.UTF8.GetByteCount(line) + 2` per line — a
   never-backwards / arrives-at-~100;
   it **compiles here and has not been run**, so its result is owed on Windows like the band tests.
 
-Validation for this change: full non-incremental solution build **0 warnings / 0 errors** including the WPF assembly;
-headless suite
-**2,088 passed / 9 skipped** (2,097 total — the three above are the new tests). Modifier extraction, spell-tree probe
-temporaries and the
-`JoinWords` source-slice fast path stay open, in that order of value, still gated on the stage-split measurement rather than
-on helper ratios.
+Modifier extraction, spell-tree probe temporaries and the `JoinWords` source-slice fast path stay open, in that order of
+value, still gated on the stage-split measurement rather than on helper ratios.
 
 **Review follow-up on the cleanup rework (2026-11):** six findings applied — `_isStarting` on the abandoned tick, the counted
 mark with `Reset`
 at the capture doors, and the wording of every claim about what a pool thread buys during a blocking collection (this
 paragraph is where that
-correction lives; the mechanism text above says it straight). Validation for this tree: full non-incremental solution build
-**0 warnings / 0 errors**
-including the WPF assembly; headless suite **2,085 passed / 9 skipped** (2,094 total — the 2,084 recorded above predates the
-three deleted test
-classes and the join/ignore-list/cleanup-mark coverage added since). Windows execution is still owed for the WPF band tests
+correction lives; the mechanism text above says it straight). Windows execution is still owed for the WPF band tests
 and the new
 realized-grid checklist item; a Linux build is not their result.
 
 
-## A chat range is whole days, and an untouched end dial rides the clock (2026-11)
+## A chat range is whole days, and an untouched end dial rides the clock
 
 Reported as a data problem: *"if they're playing past midnight the chats may go to the previous day and they fail to
 rollover properly."* The archive was innocent. Every chat line is filed by its **own** stamp — `LogProcessor.DoPreProcess`
@@ -17459,7 +18005,7 @@ without touching the dial or restarting, and that a deliberately picked end date
 `EQLogParser.Wpf.Test`
 constructs no `ChatViewer` case for this; it belongs on the real-control checklist.
 
-## Following the live log across a midnight rollover (2026-11)
+## Following the live log across a midnight rollover
 
 The same report has a second, conditional cause — and unlike the chat-range bug this one also freezes the **boards**, not just
 the Chat pane.
@@ -17521,7 +18067,7 @@ UTF-8 and a prefix crossing the 64 KiB block seam (8 tests). `LogReaderRolloverT
 file, asserting exact line counts and old-tail-before-new-head ordering; it **builds here but runs only on Windows**, so the
 wiring is still owed there. The same Windows release checklist names a manual live-log rollover check.
 
-## Two outside reviews of this branch: what was stale, and what is on the shelf (2026-11)
+## Two outside reviews of this branch: what was stale, and what is on the shelf
 
 Both reviews ran against a tree several commits behind HEAD, and each independently proposed re-introducing range-based
 loading —
@@ -17614,7 +18160,7 @@ is reused, Words are asked lazily and Split eagerly, and clearing one of them is
 previous
 capture's words.
 
-## Select Group stands alone; Ctrl or Shift on the press makes it add (2026-10-14)
+## Select Group stands alone; Ctrl or Shift on the press makes it add
 
 Operator request, one sentence: "if i right-click and select 'Select Group' … deselect everything but the group that it's
 about to
@@ -17647,11 +18193,12 @@ that has
   collapsing it.
 - **Shift+F10 must not buy additive mode.** A keyboard-opened menu carries Shift in its own keystroke, and the Apps key
 arrives just as
-  happily after an abandoned right-press; so `GridPreviewKeyDown` clears `_rightPressAdds` alongside the selection memory,
-  and a menu the
-  keyboard opened is a plain gesture. Capture change clears both (a press from the closed log may not restamp this one), as
-  does any later
-  left press.
+  happily after an abandoned right-press; so `GridPreviewKeyDown` clears `_rightPressAdds` alongside the selection memory
+  on **non-modifier keys**. F10/Apps and navigation invalidate abandoned pointer gestures; Ctrl/Shift key-downs do not.
+  Holding Ctrl before pressing and holding the right button is an ordinary additive gesture: a modifier key-down between
+  press and menu opening must not erase its stamp. The old unconditional key handler could do exactly that; this is a
+  timing window, not a limit on how many groups can be selected. Capture change and a later left press clear both memories.
+  Opening consumes the press's mode after copying it into the menu, so it cannot be reused by another opening.
 - **What may NOT clear it is the menu's close.** `Select Group` reads `_menuAdds`, which `ContextMenuOpening` copies from
 `_rightPressAdds`
   beside the `_menuRow` stamp: a menu item can only be clicked *after* its menu opened, so an item reading what the opening
@@ -17692,13 +18239,12 @@ header would have
 to change while the menu is open to tell the truth about a modifier pressed earlier, and two names for one command is how
 menus drift.
 
-Tests: `GroupSectionSelectTest` (both arms, no double-count on the overlap, identity not name, empty-selection equivalence —
-executable in the
-cross-platform suite); `FightTableGroupGestureTest` keeps the additive sequence over a realized grid, adds the replacing case
-and pins that a
-Ctrl press and an unmodified press reach the two different answers through the real preview-press wiring. Windows-only, as
-always for that
-assembly: a Linux run says nothing about it.
+Tests: `GroupSectionSelectTest` covers both arms, overlap, identity rather than name, and empty-selection equivalence in
+Core. `FightTableGroupGestureTest.HeldModifierKeyDownsKeepAddingGroupsAcrossRepeatedMenus` feeds both Ctrl and Shift sides
+through the modifier seam, routes intervening modifier key-downs, opens the real handler and checks successive unions by
+group id, overlapping groups, both close/click orders and a final plain replacement. The keyboard-abandonment cases retain
+F10/Apps/navigation coverage. These are Windows-only tests: building them on Linux does not execute them, and scripted
+key events do not prove hardware repeat delivery. The physical hold sequence remains in `ReleaseChecklist.md`.
 
 ## Trigger overlay positions are signed desktop coordinates
 
@@ -17788,15 +18334,13 @@ Isolated batched answer loops could save a few microseconds, but no material met
 concurrent classifier, so it establishes neither a contention problem nor a contention win; widening lock ownership without
 that evidence is not justified.
 
-Implementation validation: **2,298 headless tests passed, 6 gated tests skipped**. The existing `ColdChunkRealLogTest` was
-also executed separately on Incogitable live and Bulron THJ (`EQLP_EMU=1`), passing both. The full non-incremental solution
-build reported **zero warning/error diagnostics**, including the WPF test assembly; WPF runtime tests were not run on Linux.
+`ColdChunkRealLogTest` covers this on real data and was also run by hand against Incogitable live and Bulron THJ
+(`EQLP_EMU=1`); WPF runtime checks are Windows-only.
 
-## The detailed export is an Excel workbook, written by hand (2026-10-16)
+## The detailed export is an Excel workbook, written by hand
 
-Issue #191 ("Request: Detailed export") asks for a **row-level** dump of the Fight List selection in the shape GamParse
-wrote — `DPS DETAILED`, a cast list with rank, a Player/Class/Pet lookup tab, an event key/value tab — explicitly so its
-users can retire GamParse and the lookup tables they maintain by hand. The question asked first was whether the capture
+Issue #191 ("Request: Detailed export") asks for a **row-level** dump of the Fight List selection: detailed damage,
+a cast list with rank, a Player/Class/Pet lookup tab, and an event key/value tab, replacing manually maintained lookup tables. The question asked first was whether the capture
 keeps enough after a full parse; it does, because `DamageFactTable` and `HealFactTable` are **row stores, not aggregates**:
 each captured row retains its sequence, second, amount, verb/spell text and modifier mask. This is not a lossless log
 copy: unnamed/passive heals and ignored entities may never become facts. The exporter reads captured rows, not boards.
@@ -17804,7 +18348,7 @@ copy: unnamed/passive heals and ignored entities may never become facts. The exp
 **The format is ECMA-376 / ISO 29500 SpreadsheetML — `.xlsx` — written by hand** in `EQLogParser.Core/src/export/`
 (`SpreadsheetWriter`, `SpreadsheetWorkbook`, `SpreadsheetSheet`, `CaptureExport`). An .xlsx is an OPC package: a ZIP of
 small XML parts, and .NET ships both halves (`ZipArchive`, in production here since `ChatDB`, plus `XmlWriter`). What was
-weighed and refused: GamParse's own Excel-2003 XML (Microsoft-published, never standardized, deprecated by Excel, cannot
+weighed and refused: the supplied sample's Excel-2003 XML (Microsoft-published, never standardized, deprecated by Excel, cannot
 carry a real Table), NDJSON/CSV-only (no double-click, which is exactly the convenience its users are stuck on — they
 remain the machine lane), EPPlus (LGPL + commercial licence for closed-source use), Excel COM interop (requires Office),
 Syncfusion XlsIO (already in the graph through `MaterialDarkCustom`, but not installed by `.iss`, and its object model is
@@ -17819,7 +18363,7 @@ of the fact tables straight into the sheet's ZIP entry; the workbook does not re
 The decisions inside the writer, each of which has a test in `EQLogParser.Test/src/export/`:
 
 - **Numbers are numeric cells** (`<c><v>` with no `t`). The issue's numeric complaint concerns localized CSV thousands
-  separators; the supplied GamParse XML already declares its padded positions as `ss:Type="Number"`. Padding alone
+  separators; the supplied XML already declares its padded positions as `ss:Type="Number"`. Padding alone
   does not turn a numeric cell into text. Localized formatting stays on the formatted clipboard path, not in this file.
 - **Inline strings, no `sharedStrings.xml`.** No shared table to grow in memory and no second pass over the file.
 - **Frozen header row + `autoFilter` over the range written**, so it is filterable on open with nothing to click.
@@ -17882,7 +18426,7 @@ Structural validity (parts, relationship graph, cell typing, per-part filter ran
 `docs/ReleaseChecklist.md → Detailed .xlsx export checks on Windows`. Zero new dependencies, so `sign.cmd` and the
 installer list are unchanged (`FontAwesome5` is referenced by the headless test assembly only, and ships nothing).
 
-## The detailed export, reviewed against issue #191 (2026-10-16)
+## The detailed export, reviewed against issue #191
 
 Historical review: its schema and identity-lookup descriptions below are superseded by the current contract above.
 A subsequent independent read found the root relationship targeting `/workbook.xml` while the actual part is
@@ -17897,14 +18441,14 @@ An independent OpenPyXL read reconciled damage and healing sums/counts with Even
 every relationship. This does not execute desktop Excel; that remains a Windows checklist item. The whole-file worksheet
 population differs from the capture by the documented lead-in/window boundary, not by local-player filtering.
 
-The first cut was measured against the reporter's own GamParse XML (`local/exports/A_strengthening_foodstuff_9132026_1858.xml`),
+The first cut was measured against the reporter's supplied XML (`local/exports/A_strengthening_foodstuff_9132026_1858.xml`),
 the two sample workbooks, and the issue thread read end to end. Six findings, all now fixed and pinned by tests; the
 numbers are the point, because each one passed every check that existed.
 
 1. **The menu glyph would have killed MainWindow.** `Icon="Solid_File_Excel"` — the member is `Solid_FileExcel`, and the
    enum lives in `FontAwesome5.EFontAwesomeIcon`. XAML stores an enum property as TEXT in the BAML and resolves it at
-   window LOAD, so the solution built at zero warnings (the literal was verified inside the compiled `EQLogParser.dll`),
-   2,312 headless tests passed, and the app would have thrown `XamlParseException` constructing MainWindow. Sweeping every
+   window LOAD, so a clean zero-warning build and a fully green headless suite were both compatible with the app throwing
+   `XamlParseException` constructing MainWindow (the bad literal was verified inside the compiled `EQLogParser.dll`). Sweeping every
    `fa:ImageAwesome Icon="…"` literal in all 239 `.xaml` files found exactly one bad value — this one. The menu now uses
    `Solid_FileCode`, and **`XamlIconNameTest`** enumerates the literals against the enum, which is the only way this class
    of startup crash is visible from Linux (the WPF assembly builds here; it cannot run).
@@ -17920,10 +18464,9 @@ numbers are the point, because each one passed every check that existed.
    i.e. exactly the whole-night case the split exists for (measured by probe: 1,048,576 rows, one part, R1048577).
    `SpreadsheetSheet.PartIsFull` now honours both bounds — the spec's `MaxRows` keeps its data-row meaning for the split
    test, and the grid counts the header.
-4. **The clock was a second off from GamParse on the lead-in.** Their scale has no zero (pull = 1, one second early = -1);
-   `t - anchor + 1` printed **-4** where their file prints **-5** for the same five-seconds-early cast, verified in both
-   sample workbooks. This is not nostalgia: the reporter imports every export into years of saved GamParse tables, so a
-   shifted lead-in is invisible and permanent. `RelativeTime` now reproduces their scale.
+4. **Relative time was a second off on the lead-in.** The export scale has no zero (pull = 1, one second early = -1).
+   `t - anchor + 1` printed **-4** for a cast five seconds before the pull. `RelativeTime` now prints **-5**, preserving
+   the actual lead-in interval while numbering the pull's first second as 1.
 5. **Casts and heals closed at the last DAMAGE row**, so healing that lands after the killing blow — the tail a "Heals by
    you" reader came for — was dropped (probe: a heal one second past the window's final damage produced no row). The span
    is `BeginS - LeadInS .. max(EndS, ToTimeS)`.
@@ -17952,13 +18495,13 @@ package is complete, so a failure no longer leaves half an .xlsx at the path the
 Headless suite after these fixes: **2,317 passed, 6 skipped** (real-log gates). No installer change; the test assembly's
 `FontAwesome5` reference is for `XamlIconNameTest` and ships nothing.
 
-### Column for column against GamParse's own file (measured 2026-10-16)
+### Column comparison with the supplied sample export
 
 The reporter's sample XML (`local/exports/A_strengthening_foodstuff_9132026_1858.xml`) is the per-line export, and it uses
 **our sheet names**: `Player DPS`, `NPC DPS`, `Spells cast`, `Heals by you`, `Heals to you`. Their columns, read off that
 file, next to ours:
 
-| sheet | GamParse | ours |
+| sheet | supplied sample | our export |
 |---|---|---|
 | Player DPS / NPC DPS | `LogLine`/`FilePos`, `Time`, `Attacker`, `Opponent`, `Type`, `Damage`, `Defense`, `Crit` (8) | 12: same, plus `Owner`, `Skill`, `Rank`, `Log Time`; their `Crit` is our `Modifiers`, their file position is our `Seq` |
 | Spells cast | `FilePos`, `Time`, `Caster`, `Spell cast` (4) | 6: `Seq`, `Time`, `Log Time`, `Caster`, `Spell`, `Rank` |
@@ -17971,14 +18514,14 @@ leads in at `-5`** for a cast five seconds early — the `RelativeTime` scale ab
 sheet the fix was written for. And **their heal sheets carry no overheal at all**: our `Over Heal` is additive, and it uses
 this app's own convention (`HealFact.Overheal` = what the parenthesised amount asked for, minus what landed), which on a
 modern raid slice is a big number — 16.6 M over-heal against 2.6 M landed on "Heals by you", 7.0 G against 908 M across the
-whole capture. There is no GamParse column to reconcile that against, so it is an open question for the thread, not a bug claim.
+whole capture. There is no sample column to reconcile that against, so it is an open question for the thread, not a bug claim.
 
 Two shapes exist in their tooling and we build one of them: this per-line file, and a wide `.xlsx` with one row per
 **player × second** across ~200 columns (41,028 rows / 75,516,869 damage on their sample capture). A pivot over our `Seq`/
 `Time`/`Attacker` reproduces the wide table, and the per-line file carries what the wide one throws away. Which of the two
 their years of saved tables union into is worth asking before anyone builds a second writer.
 
-### The raw log is the witness, not the sample (measured 2026-10-16)
+### The raw log is the witness, not the sample
 
 A sample file can be missing things, so the export was reconciled against the **log text itself**
 (`local/exports/eqlog_Kizant_xegony-selected.txt`: 560,138 timestamped lines, 9.7 minutes, local player Kizant) by
@@ -17987,8 +18530,7 @@ counting every shape the parsers read — `for N points of <kind> damage`, `has/
 and passive `is healed for`, the cast verbs (`begins casting|begin casting|begins singing|activates`), and the
 amount-less `tries to …, but misses!|blocks!|parries!|dodges!|absorbs the blow!`. That list IS the recipe: any throwaway
 script over the text (mine sat under `local/tools/`, gitignored with the logs) plus a reader for the exported `.xlsx`
-reproduces every number below in about a minute of parsing. Do it before believing any claim about this export, ours or
-GamParse's.
+reproduces every number below in about a minute of parsing. The log, not another export, is the source of truth.
 
 | metric | export | raw log | delta |
 |---|---:|---:|---:|
@@ -18086,13 +18628,13 @@ One measurement note that cost me a false finding: with `ConfigUtil.PlayerName` 
 `""`, and `healed` fails its non-empty check (375 lines / 5.8 M in this capture). Set the dial before measuring heals.
 Measured 2026-08-03; both probes were disposable.
 
-Why the log and not the sample: on the fight GamParse's own file covers ("a strengthening foodstuff", 18:55:17..18:58:50)
-the log carries **563 damage lines / 129,134,558 damage** and ~10,900 cast lines. GamParse's file has **one** Player DPS
-row (Tunky, 2,457,899 — 1.9 % of that damage) and 331 cast rows. Ours: 596 rows (the 563 plus 33 amount-less ones) and
-**129,134,558** — exact to the log — with the casts alongside them. "Match GamParse" is therefore the wrong target for
-this export; **"match the log"** is the standard, and ±0.01 % against 560k lines is where it stands.
+Why the log and not the sample: on the sample's fight ("a strengthening foodstuff", 18:55:17..18:58:50),
+the log carries **563 damage lines / 129,134,558 damage** and ~10,900 cast lines. The sample has **one** Player DPS
+row (Tunky, 2,457,899 — 1.9 % of that damage) and 331 cast rows. Our export: 596 rows (the 563 plus 33 amount-less ones)
+and **129,134,558** — exact to the log — with the casts alongside them. **Match the log** is the standard;
+matching an incomplete sample is not. The whole-capture comparison stands at ±0.01 % against 560k lines.
 
-## A summon's own sentence about its master (2026-12-08)
+## A summon's own sentence about its master
 
 ``[Sun Oct 11 21:53:56 2026] Mgsk says, 'My leader is Xxuro.'``
 
@@ -18186,7 +18728,7 @@ exception, later automatic mappings,
 reloading the override file, replacement, take-back, and legacy kind-only rows. Assignment/take-back fixtures now reset
 the override singleton as well as the registry; materialized-board tests apply the manual override stage just as the host does.
 
-## The NPC frame gets its own rung: 65 (2026-12-08)
+## The NPC frame gets its own rung: 65
 
 `ClassificationRules.TargetedNpcStrength` was 70 and is now **65**. What the frame actually says is "the client never saw this
 name as a player", which cannot distinguish a hostile from a mercenary or a summon — measured, the bots `Muavanne` and
@@ -18206,7 +18748,7 @@ Blast radius, measured over both real captures with rules applied before the num
 `PetLeaderConfessionTest.TheNpcFrameSitsOnARungOfItsOwn` asserts the ladder is ascending and pairwise distinct, so any future
 number that lands on a neighbour's rung fails there rather than settling on write order.
 
-## Which spell targets could have hit a group (2026-12-08)
+## Which spell targets could have hit a group
 
 The question was whether `Target` in `spells.txt` can carry the "was this a group heal" signal. It cannot decide identity — and
 it can rank the claim, which is what the heal lane needed. The numbers below are from both real captures, counted per distinct
@@ -18309,14 +18851,12 @@ or GC-probe test is retained.
 Standing coverage is `FactChunkScratchTest` (blob independence, reuse bounds, corruption and verification refusal),
 `SpellTreeProbeTest` (ordinal span matching and freeze), `RecordsStoreWindowTest` (range behavior), and
 `PublishedEventShapeTest` (readonly type metadata, init-only setter metadata, record references and modifier slices).
-Both the original implementation and review correction passed 2,440 headless tests with six gated tests skipped.
-After the correction, `ColdChunkRealLogTest` passed separately on Kizant live and Roper THJ, and the full non-incremental
-solution build reported zero warnings/errors. WPF runtime checks remain Windows-only.
+`ColdChunkRealLogTest` also runs by hand against Kizant live and Roper THJ; WPF runtime checks remain Windows-only.
 
 Higher-risk work was not included: broad name/spell span interning, decoded-pass lifetime changes, fact-backed board
 consumption, packed auxiliary storage and token-buffer reuse. Those need separate designs and measurements.
 
-## Test consolidation: keep decisions, retire reconstructions (2026-11)
+## Test consolidation: keep decisions, retire reconstructions
 
 The cleanup removes private-field inventories, DTO property round-trips, copy-harness self-tests, incidental exception
 contracts, cosmetic assertions and manual vendor-property setter tests. Frozen-cell coverage keeps the owned static-state
@@ -18348,13 +18888,41 @@ Target-frame expected strength is calculated inside the test, not stored in disc
 method has a fresh name to invalidate older discovery identities. This preserves the identity/strength/source assertions;
 it does not prove the operator's particular Windows Test Explorer cache was the original failure.
 
-Validation on Linux: two fresh headless runs each passed **2,519**, with **3 gated skips**, in approximately **10 seconds**;
-three additional target-frame/concurrency runs each passed all **8** cases. The non-incremental solution build reported
-**zero warnings/errors**, including the WPF test project. Separately, Kizant live passed the cold-storage and same-process
-reproducibility gates, Kizant live passed the retained incremental-classification gate, and Roper THJ passed cold storage
-with `EQLP_EMU=1`. These are executed counts, not source-method counts.
-WPF runtime tests were not executed here. Startup/theme sizing, column order, take-back presentation and frozen-grid visuals
+Separately, Kizant live passes the cold-storage, same-process reproducibility and retained incremental-classification gates,
+and Roper THJ passes cold storage with `EQLP_EMU=1`. Startup/theme sizing, column order, take-back presentation and frozen-grid visuals
 remain Windows checks in `docs/ReleaseChecklist.md`.
+
+## Plain decimal input uses one invariant parser
+
+`TextUtils.ParseDouble` is the shared reader for signed, dot-decimal tokens. Condition literals and comparisons,
+legacy roster/pet-map timestamps, NAG rgba alpha and overlay font sizes use it. Invalid input returns `NaN` or the
+caller's explicit fallback; the reader rejects grouping, exponents, non-finite words and integer parts beyond `ulong`.
+Whitespace belongs to the caller's grammar: file timestamps, alpha and font sizes trim it; condition tokens do not need to.
+Integer tokens accumulate as `ulong` and convert once. Fractional tokens pass the same grammar checks, then use invariant
+span-based runtime conversion for correctly rounded results: summing digit × scale gave `0.30000000000000004` for `0.3`,
+breaking string equality against a number literal and moving rgba alpha across a midpoint. No per-digit floating-point fold.
+`UiElementUtil.TryParseFontSize` serves both overlay update paths and the defaulting `ParseFontSize` door.
+
+Invariant formatting alone cannot fix a culture-dependent parse: German `double.TryParse` reads `12.5` as 125 before
+an evaluator ever formats it. `ConditionScalarTest` checks both the AST value and evaluation under English, German and
+French cultures; `LegacyIdentityNumberTest` pins timestamp carry and invalid-stamp fallback, and
+`NagUtilTriggerImportTest` pins rgba alpha under those cultures. `FontSizeParsingTest` covers the shared WPF-side reader.
+`TextUtilsParseUIntTest` also pins the shared double reader's deliberate grammar limits and exact rounding, including
+fractions beyond the exact-integer range of a double.
+
+This is not a blanket replacement for framework numeric conversion. `ConfigUtil` must round-trip invariant general-format
+doubles, including exponent notation. The trigger `number` modifier and `ZeroConverter.ConvertBack` retain their broader
+formatted-number grammar. Spell-count header sorting reads current-culture display text and must match its writer.
+Those paths keep framework parsing; numeric-object `Convert.ToDouble` calls and JSON numeric readers are not text-token parsers.
+
+## Settings autosave starts with the main window
+
+`UiUtil.CreateTimer` honours its `start` argument after attaching the tick handler. MainWindow's settings timer requests immediate start;
+its 30-second dispatcher ticks call `SaveTimerTick`, which flushes pending settings through `ConfigUtil.Save` once startup is complete.
+Power suspend stops the timer and flushes settings; resume restarts it; window close flushes and stops it. Other timer callers request
+`false` and start on their own lifecycle paths. Ignoring the flag silently disables ordinary autosave until a power resume, leaving settings
+changes exposed to a crash or forced exit until another explicit save. This is periodic persistence, not a guarantee against losing the
+last unsaved interval. `UiUtilTimerTest` pins both start modes in the Windows-only assembly; the disk/relaunch check is in `ReleaseChecklist.md`.
 
 ## Log Management saves the displayed settings
 
@@ -18377,7 +18945,162 @@ on every occurrence lost such paths after restarting, despite an otherwise succe
 and retry support, not a new transactional or atomic-file persistence protocol.
 
 `LogManagementSettingsTest` exercises every offered field value through the actual settings writer and a disk reload,
-both Any thresholds together, root/UNC/equals-containing paths, refusal, and failed-write rollback/retry. The headless
-suite passed **2,546 tests with 3 gated skips**; the non-incremental solution build reported **zero warnings/errors**.
+both Any thresholds together, root/UNC/equals-containing paths, refusal, and failed-write rollback/retry.
 `LogManagementWindowTest` covers the checkbox/revert handlers and combo-to-setting wiring, but only built on Linux;
 its runtime checks and the live Save/reopen checks remain owed on Windows in `docs/ReleaseChecklist.md`.
+
+## Line-chart rolling rates count seconds, not samples
+
+**Goal:** the rolling chart and meter use the same six-second arithmetic, and a quiet interval must not disappear between
+chart samples. At log second t, sum amounts in t−5 through t inclusive and divide by **six from the first hit**. Missing
+seconds contribute zero. Whole-second labels, integer amounts and sum-before-division match the meter; no PC clock enters
+either calculation. `RollingWindow.Seconds` is the shared window definition for meter buckets and chart rolling transitions;
+chart gap-marker spacing has its own `GapMarkerOffsetSeconds` because it is presentation, not the rate window.
+Both lanes divide through `StatsUtil.RateOverWholeSeconds`, never an in-place `/ 6`: a window sum may exceed
+2^53, where rounding through a double would drop units the amounts still carry. Damage, tanking and healing share the chart implementation.
+
+The earlier sparse chart evaluated only occupied timestamps, with zero markers for gaps over 30 seconds and a shortened
+startup denominator. That could conceal a real zero: two six-million bursts at seconds 100 and 110 each answer one million
+RDPS, but seconds 106–109 answer zero. Connecting just the two occupied points drew a million-DPS bridge across that trough.
+A large nonzero low point is not itself wrong; no magnitude threshold or forced-zero rule is involved.
+
+`ChartAggregation` merges source amounts and cumulative counts without computing rolling fields. `ChartRollingSeries` is the
+only chart rolling-rate calculation, invoked for rolling modes only: it merges arrivals and their six-second expirations,
+sums simultaneous changes, and emits value changes plus the preceding
+second's held value. Long empty stretches need only endpoints, not one point per second. Every integer log second agrees
+with the six-bucket calculation; the line between adjacent seconds remains ordinary linear interpolation.
+
+Each plotted rolling series ends at the selected record stream's latest log second (the raid series' edge). Another player's
+activity therefore exposes a quiet player's trailing zero. With no later captured data, there is no invented future decay.
+Player/pet, group and raid amounts are combined before division. Group rolling values are recomputed from merged amounts,
+not summed from rounded member rates. The chart and meter can still differ when their fight scopes, Reset bounds or pet
+views differ; this change does not make a historical selection follow the overlay's lifecycle.
+
+Synthetic rolling points are detached and never fed back into cumulative totals, activity durations, ranking or another
+merge. Aggregate and instantaneous modes retain their original source buckets. CSV uses the plotted rolling points, including
+quiet transitions. There is no extra timer or historical record walk; the added work is linear in the selected series' bucket
+counts, not the length of silence. Vendor rendering cost still needs Windows validation.
+
+`ChartRollingSeriesTest` pins the fixed denominator and five/six-second boundary, and checks the missing trough,
+legitimate nonzero lows, shared data-edge tails, simultaneous arrival/expiry, fractional labels, wide amounts, staggered group sums,
+source immutability and a seeded comparison against `MeterRecentWindow` at every integer second. The Windows-only
+`LineChartSelectionTest` checks rolling-mode wiring and that switching back preserves aggregate buckets; rendering remains
+in `docs/ReleaseChecklist.md`, and that test compiles here without executing.
+
+### Sparse chart buckets: cumulative correctness and calculation cost
+
+Review found four numeric defects and one lost-selection path. `LineChart` extended its duration before publishing the
+previous bucket, so a later hit changed the earlier point's DPS. It counted misses in `FightHits`, diluting average hit,
+crit and twincast rates. Its long-gap markers zeroed cumulative damage as well as instantaneous activity. Group DPS
+used exclusive wall time, making its first point zero and its second point twice the proper rate. Finally an UPDATE
+saved the group selection and immediately discarded it through `Clear()`; the selection is now restored after that clear.
+
+`ChartSeriesBuilder` owns a series' bucket, cumulative amounts and inclusive activity clock. A bucket publishes before
+new time enters the clock. Only landed outcomes increment hit/crit/twincast counters; every outcome remains an attempt.
+Gaps greater than the existing 30-second threshold still produce exactly two markers, at previous+6 and next−6, but
+markers retain cumulative amounts, hit counts and rates. They have zero attempts and therefore cannot buy activity time.
+Short gaps count their elapsed seconds; a long gap adds only the next occupied second. A finished bucket is detached from
+the input record and from future publications. Damage, healing, tanking, player-plus-pets and raid share this calculation.
+`ChartActivityClock` keeps its last timestamp and duration when an input goes backwards, warns on the first offending pair and counts
+regressions in `OutOfOrder`. That guard alone cannot make a backwards bucket safe for the ascending group/rolling walkers.
+`ChartSeriesBuilder` switches to `ChartSeriesRecovery` on the first backwards record: seed per-timestamp amount/count buckets from
+real published points, exclude synthetic markers, merge further records at their actual timestamps, and rebuild in sorted order on
+`Finish`. The rebuild uses the ordinary bucket fold, recomputing cumulative amounts, durations, rates and gap markers together.
+Only this anomalous path allocates the recovery dictionary or sorts; ordinary input keeps its streaming path. No record is retained,
+dropped or relabelled, and previously published point objects are never mutated. `ChartSeriesRecoveryTest` pins the full builder → group
+merge → rolling path, real expiry seconds, late hits bridging gaps, same-time merges, misses, fractional times and repeated flushes.
+
+Group merging uses the same inclusive clock over actual group activity, ignoring marker-only timestamps. Cumulative
+member values carry forward, while bucket amounts/counts contribute only at their own timestamp. Rolling values are
+recomputed from merged amounts. Groups can bridge a member's silence when another member is active. These source buckets
+remain sparse and have no trailing padding. Rolling-only plotting now adds the log-time transitions described above without
+changing cumulative accounting or adding a timer.
+
+The correctness extraction also removes per-record last-time/accounting/range dictionary lookups. Since inputs are
+sorted, the activity clock needs just its last timestamp and accumulated seconds, rather than a growing `TimeRange`
+whose total was re-summed at every point. Group input lists already ascend too: a cursor per member replaces the sorted
+set of all timestamps and the per-member timestamp dictionaries; cumulative totals update only for members advancing.
+The cursor merge still scans the member cursors per output timestamp, appropriate for the small group lists.
+
+A disposable Release-mode Linux comparison used four warm-up pairs and nine alternating timed pairs, reporting medians,
+without forced collections. Compared against the pre-repair calculation, with equal output counts and final totals:
+
+| Synthetic calculation | Before | After | Ratio |
+|---|---:|---:|---:|
+| One series, 1,000,000 records, 500 separated lives, including rolling calculation | 28.65 ms | 13.40 ms | 2.14× |
+| Six-member group merge, 120,000 input points, dense seconds | 11.44 ms | 1.80 ms | 6.36× |
+| Six-member group merge, 120,000 input points, staggered 11-second spacing | 40.04 ms | 21.53 ms | 1.86× |
+
+These are calculation timings, not end-to-end redraw or UI-speed claims. Earlier erroneous rates are deliberately not
+an equivalence oracle. `ChartSeriesBuilderTest` checks the repaired arithmetic, gaps, zero/missed outcomes, immutable
+publications and group lookup, plus a seeded multi-member merge against independent raw-record accounting at every
+output timestamp. `LineChartSelectionTest` exercises the actual UPDATE path on Windows, so it compiles here and answers only
+there. The temporary measurement code was removed.
+
+## Busy seconds: activity is measured from marks, never from a stored span
+
+**Goal:** a player who does nothing during a fight must not be allocated the same time as one casting the whole way through. **Busy** sits
+beside **Sec** on Damage, Healing and Tanking Summary. It reads logged lane output, not button presses: long casts, lag, DoTs, pets, mana and
+waiting for a target all move it legitimately, so it is an approximation of activity rather than a diagnosis.
+
+**The rule in one sentence:** collect the seconds this lane actually credited this row with, weld them across pauses of ten seconds or less,
+and cut that against the same covered range the row's `TotalSeconds` was read from — **Busy is Sec minus the idle stretches inside it**.
+
+A **mark** is a whole log second that carried at least one record accepted by that lane's existing walk, taken from the containing
+`ActionGroup.BeginTime` — neither record type carries a time of its own, so nothing may add timestamps to them or use the wall clock. Marks are
+`long` in a `HashSet<long>` on the row (`PlayerStats`), plus a last-second gate as a cheap skip: these are .NET-epoch seconds (~64 billion for a
+modern capture) and an `int` truncates silently while still producing plausible numbers. The set is the deduplicator, so repeats, simultaneous
+actions and overlapping selected fights each contribute one mark and insertion order is irrelevant.
+
+**The weld** (`BusyTimePolicy`) sorts the marks and extends a run while `next - end <= GapSeconds` (10), closing it with the inclusive length
+`end - start + 1`. The boundary is the **distance between timestamps**, not the count of unmarked seconds between them: `{0,10}` measures 11 and
+`{0,11}` measures 2. One mark measures one second, with no allowance before the first or after the last — this is emphatically not "ten seconds
+per action". Ten is a heuristic from measured cadence, not a proven idle threshold, and the shared Busy header tooltip names it:
+changing `GapSeconds` updates that tooltip in the same change. All three summaries share the Sec and Busy tooltips: Sec includes pauses
+and supplies the DPS/HPS denominator; Busy estimates active time within Sec and changes no rate.
+
+**The cut is what keeps the column honest.** A run extends only while both ends sit inside ONE span of the row's covered range — the very
+`TimeRange` its Sec came from, which `UpdateAllStatsTimeRanges` and the healing builder's `UpdateStats` hand back rather than a second merge
+being built. `TimeRange` joins its own spans up to 6 seconds apart — five seconds of dead air — which is less than this column's 10, so an uncut
+weld claims ground no measurement made: two selected one-hit fights 7-10 seconds apart, or two different spells of one healer that far apart
+inside a pull, are 2 seconds of Sec and would read up to 11. From the cut follow the invariants: **Busy ≤ Sec on every published row in every lane**, equal when nothing sat idle; an idle stretch inside
+one covered span is still removed (`Sec 21`, `Busy 2`); a mark outside every span counts nothing; and a row with no coverage measures 0, which is
+the same row Sec reports as zero. If a builder's marks come from ground its range did not measure, fix the hand-off — never paper over it with a
+`Math.Min` against Sec, which hides that while making the two columns disagree about which seconds exist.
+
+**Each summary measures its own lane** — damage dealt, healing done, incoming attempts — and only rows whose *role* is an entity are stamped:
+spell/proc/damage-type breakdowns, healed-target detail, `PopulateHealing`'s received-healing pass, raid totals and synthetic group-view headers
+read **0**, the way every other unearned total does. Keep `BusySeconds` a plain `double` beside `TotalSeconds`: a `double?` reopens blank versus
+zero in every grid, sort and CSV to say what `0` already says. Nothing in this column runs a classification or a visibility rule.
+
+**Aggregate (`X +Pets`) rows union their members' marks**, collected at the walk site that already decides which owner receives each amount —
+timed charm ownership included, so a mark lands with the row its amount lands on — cut against the union of those children's ranges. A pair can
+exceed the sum of its children (owner `{0}` plus pet `{3}` is one second each and four for the row, because their spans merge and Sec counts 0-3
+as active too) and never further than those ranges reach (`{0}` plus `{10}` is `2`).
+
+**Marks follow the question, not the capture:** whatever the existing selection, ordinal slicing, time window and lane filters accept supplies
+them and everything else supplies none — excluded damage buys no seconds while a valid zero-amount attempt (a miss, a fully-overhealed heal) buys
+its second. A narrowed question is re-measured from its surviving marks rather than clipped from the old scalar: `{0,8}` inside one span answers 9,
+and keeping only the mark at 8 answers 1, carrying no bridging credit. Totals, rates and denominators, ranking, bar percentages, row membership
+and record selection are untouched, and nothing here commits to changing a rate denominator later.
+
+Rows outlive the build inside `CombinedStats`, so `Apply` publishes the scalar **and releases the scratch set and gate**, child and aggregate rows
+alike — a retained set is a build's worth of heap per name. Busy is an ordinary column: no settings knob, and an operator who does not want it hides
+it with the picker. Order and visibility are independent saved preferences; an unknown Busy is inserted once beside Sec (even when only an order was
+saved) and a fresh layout records it immediately, so hiding it before ever dragging a column is not mistaken for an old layout on restart — after
+that the operator's choice wins.
+
+Prior measurements over `eqlog_Kizant_xegony-2.txt` (classification + projection + the real builders): re-welding the stored per-fight spans at
+wider tolerances did **not** remove their internal silence, which is why this needs block timestamps rather than another operation on
+`DamageSegments`. One 25-fight group's damage marks ran a raid-wide median gap of 1 s and p90 of 4 s, with sparse named rows at p90 6-7 s; around
+the chosen tolerance one row kept ~93 % of its window at gap 8 and ~97 % at gap 12, another 78 % and 82 %. Slack for normal casting — no maximum,
+no false-idle promise, not a regression expectation.
+
+Pinned headlessly: `BusyTimePolicyTest` (the weld table including exactly-ten joins and eleven splits, insertion order, real .NET-epoch
+magnitudes, the cut from both sides — a bridge inside one span kept and across two refused, a mark outside every span counting nothing, no
+coverage measuring nothing, a welded total never outgrowing its span — union-vs-sum, a gap below 1 refused, gate versus set, `Apply` releasing
+scratch, an unmarked row at zero) and `BusyTimeTest` (the three builder seams: own accepted marks, misses counted and excluded damage not, strict
+children under a joining aggregate that still cannot exceed its coverage, marks following per-record ownership, healer-not-recipient, zero-landed
+heals, the damage-type dial, one name answering differently per lane, narrowing and widening, `Busy == Sec` across fight gaps of 5/6/7/10 seconds,
+unstamped rows at 0, scratch released with `Busy <= Sec` asserted on every published row, and the empty-answer path intact). Grid behaviour is owed
+on Windows in `docs/ReleaseChecklist.md`.

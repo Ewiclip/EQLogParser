@@ -16,7 +16,13 @@ namespace EQLogParser
     public event EventHandler CloseRequested;
     public event EventHandler DpsRequested;
     public event EventHandler TankRequested;
-    internal event EventHandler ContentHeightChanged;
+    internal event EventHandler ContentSizeChanged;
+
+    // Set by DamageOverlayWindow from its panels choice, never by this window: which tabs exist and which one the operator picked -- which
+    // is also what is drawn, because a meter never moves anybody to another tab.
+    private MeterPanels _availablePanels = MeterPanels.Both;
+    private bool _showingDps = true;
+    private bool _attentionIsOn;
 
     public DamageOverlayToolbarWindow()
     {
@@ -29,15 +35,16 @@ namespace EQLogParser
       closeButton.Click += (_, _) => CloseRequested?.Invoke(this, EventArgs.Empty);
       dpsButton.Click += (_, _) => DpsRequested?.Invoke(this, EventArgs.Empty);
       tankButton.Click += (_, _) => TankRequested?.Invoke(this, EventArgs.Empty);
-      toolbarPanel.SizeChanged += (_, _) => ContentHeightChanged?.Invoke(this, EventArgs.Empty);
+      toolbarPanel.SizeChanged += (_, _) => ContentSizeChanged?.Invoke(this, EventArgs.Empty);
 
       SetShowingDps(true);
     }
 
     public void SetShowingDps(bool showingDps)
     {
-      dpsButton.Foreground = showingDps ? ActiveBrush : InactiveBrush;
-      tankButton.Foreground = showingDps ? InactiveBrush : ActiveBrush;
+      if (_showingDps != showingDps) _attentionIsOn = false;
+      _showingDps = showingDps;
+      ApplyEnabledState();
     }
 
     public void UpdateFontSize(int fontSize, double headerHeight)
@@ -93,6 +100,8 @@ namespace EQLogParser
 
     internal double ContentHeight => toolbarPanel.ActualHeight + toolbarPanel.Margin.Top + toolbarPanel.Margin.Bottom;
 
+    internal double ContentWidth => toolbarPanel.ActualWidth + toolbarPanel.Margin.Left + toolbarPanel.Margin.Right;
+
     protected override void OnSourceInitialized(EventArgs e)
     {
       base.OnSourceInitialized(e);
@@ -112,6 +121,43 @@ namespace EQLogParser
       NativeMethods.SetWindowLong(source.Handle, (int)NativeMethods.GetWindowLongFields.GwlExstyle, exStyle);
       // Request a native resize after installing the hook; header spacing measures the panel independently.
       Height = MinHeight;
+    }
+
+    // A disabled panel loses its tab and divider; the toolbar's measured content owns its size.
+    internal void SetAvailableViews(MeterPanels panels)
+    {
+      _availablePanels = panels;
+      ApplyEnabledState();
+    }
+
+    // The meter owns the rhythm; retain its current phase so an unrelated toolbar repaint cannot erase a pulse.
+    internal void SetTabAttention(bool on)
+    {
+      _attentionIsOn = on;
+      ApplyEnabledState();
+    }
+
+    private static Brush AttentionBrush => Application.Current.Resources["EQGoodForegroundBrush"] as Brush ?? ActiveBrush;
+
+    private void ApplyEnabledState()
+    {
+      var damageEnabled = (_availablePanels & MeterPanels.Damage) != 0;
+      var tankingEnabled = (_availablePanels & MeterPanels.Tanking) != 0;
+      dpsButton.Visibility = damageEnabled ? Visibility.Visible : Visibility.Collapsed;
+      tankButton.Visibility = tankingEnabled ? Visibility.Visible : Visibility.Collapsed;
+
+      // The divider BETWEEN the two tabs is not a divider when only one tab is left.
+      rect2.Visibility = damageEnabled && tankingEnabled ? Visibility.Visible : Visibility.Collapsed;
+
+      dpsButton.Foreground = TabBrush(damageEnabled, _showingDps);
+      tankButton.Foreground = TabBrush(tankingEnabled, !_showingDps);
+    }
+
+    private Brush TabBrush(bool enabled, bool selected)
+    {
+      if (!enabled) return InactiveBrush;
+      if (selected) return ActiveBrush;
+      return _attentionIsOn ? AttentionBrush : InactiveBrush;
     }
   }
 }

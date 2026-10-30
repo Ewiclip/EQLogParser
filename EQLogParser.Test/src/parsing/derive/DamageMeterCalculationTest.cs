@@ -28,6 +28,43 @@ public partial class DamageMeterCalculationTest
     Assert.AreEqual(TextUtils.MaxAmount + uint.MaxValue + 1L, log.Last.TankStats.RaidStats.Total);
   }
 
+  /*
+   * SDPS divides by the RAID's clock. Bithika joins with six seconds left on a minute-long capture: her DPS is the rate she actually
+   * played at and her SDPS is a tenth of it, and that gap IS the information the column exists to carry. Pinned because CalculateRates
+   * takes its denominator as an argument — passing the row's own span there would read as a tidy refactor and quietly turn the meter's
+   * SDPS into a second DPS column, with nothing else in the build disagreeing. Illuminai swung the whole capture, so his two rates must
+   * be the same number: same denominator, same quotient.
+   */
+  [TestMethod]
+  public void TheRaidTimeRateDividesByTheRaidsSpanNotTheNamesOwn()
+  {
+    var log = new Capture();
+    for (var second = 0; second < 60; second++)
+    {
+      log.Add("Illuminai", "a rat", second, 100);
+    }
+
+    for (var second = 54; second < 60; second++)
+    {
+      log.Add("Bithika", "a rat", second, 100);
+    }
+
+    log.Check(60);
+
+    var damage = log.Last!.DamageStats;
+    var late = damage.StatsList.First(row => row.Name == "Bithika");
+    var throughout = damage.StatsList.First(row => row.Name == "Illuminai");
+
+    Assert.AreEqual(600, late.Total);
+    Assert.AreEqual(100, late.Dps, "DPS divides by the six seconds she was swinging");
+    Assert.AreEqual(StatsUtil.RatePerSecond(600, damage.RaidStats.TotalSeconds), late.Sdps,
+      "SDPS divides by the raid's elapsed span");
+    Assert.IsTrue(late.Sdps < late.Dps, "a name on screen for a tenth of the capture cannot rate the same in both columns");
+
+    Assert.AreEqual(throughout.Dps, throughout.Sdps,
+      "the raid's span and this name's own span are the same clock, so the two columns must agree");
+  }
+
   [TestMethod]
   public void SameSecondArrivalsAndUnchangedPollsMatchTheFullCalculation()
   {
@@ -251,14 +288,14 @@ public partial class DamageMeterCalculationTest
   }
 
   [TestMethod]
-  public void ABackwardWallClockRebuildsTheUpperBoundInsteadOfKeepingFutureDamage()
+  public void ABackwardPresentationClockCannotRemoveCapturedDamage()
   {
     var log = new Capture();
     log.Add("Illuminai", "a rat", 0, 100);
     log.Add("Illuminai", "a rat", 4, 900);
     log.Check(4, 90);
     log.Check(2, 90);
-    Assert.AreEqual(100L, log.Last!.DamageStats.RaidStats.Total);
+    Assert.AreEqual(1000L, log.Last!.DamageStats.RaidStats.Total);
     log.Check(4, 90);
     Assert.AreEqual(1000L, log.Last!.DamageStats.RaidStats.Total);
   }
@@ -309,7 +346,7 @@ public partial class DamageMeterCalculationTest
     var log = new Capture();
     log.Add("Illuminai", "a rat", 0, 100);
     log.Check(1);
-    log.Lifecycle.Reset(1, T0 + 1.5);
+    log.Lifecycle.Reset(1, log.Facts.FactCount);
     log.Add("Illuminai", "a rat", 2, 900);
     using var cancel = new CancellationTokenSource();
     cancel.Cancel();
@@ -353,8 +390,12 @@ public partial class DamageMeterCalculationTest
     internal readonly FightProjection.FightProjectionCache Cache = new();
     internal readonly DamageMeterCalculation Calculation = new();
     internal readonly DamageOverlayLifecycle Lifecycle = new();
+    internal readonly MeterArrivals Arrivals = new();
+    private double _lastReceipt = double.NegativeInfinity;
     internal DamageOverlayStats? Last;
     internal DamageOverlayStats? Expected;
+    // A cold calculation over the SAME input, kept when a test asks for it: what the incremental state must agree with.
+    internal DamageOverlayStats? Fresh;
 
     internal Capture()
     {
@@ -365,9 +406,16 @@ public partial class DamageMeterCalculationTest
     }
 
     internal void Add(string attacker, string defender, int second, long amount,
-      byte type = LabelTypes.Melee, byte flags = 0) => Facts.AddFact(new DamageFact(Facts.FactCount,
-      (long)(T0 + second), Facts.InternName(attacker), Facts.InternName(defender), amount, type,
-      flags, 0, ushort.MaxValue));
+      byte type = LabelTypes.Melee, byte flags = 0, double? receivedAt = null, double? wallReceivedAt = null)
+    {
+      Facts.AddFact(new DamageFact(Facts.FactCount,
+        (long)(T0 + second), Facts.InternName(attacker), Facts.InternName(defender), amount, type,
+        flags, 0, ushort.MaxValue));
+      _lastReceipt = Math.Max(_lastReceipt, T0 + (receivedAt ?? second));
+      if (wallReceivedAt is { } wall)
+        Arrivals.Record(Facts.FactCount, _lastReceipt, T0 + second, T0 + wall);
+      else Arrivals.Record(Facts.FactCount, _lastReceipt);
+    }
 
     internal IReadOnlyList<DerivedFight> Project()
     {
@@ -377,15 +425,29 @@ public partial class DamageMeterCalculationTest
       return rows;
     }
 
-    internal void Check(double second, int mode = 0, bool compareFresh = false)
+    internal void Check(double second, int mode = 0, bool compareFresh = false,
+      MeterPanels panels = MeterPanels.Both)
     {
       var rows = Project();
-      var scope = Lifecycle.Select(1, rows, T0 + second, mode);
-      Expected = DerivedTotals.ForOverlay(scope.Rows, Cache.Index, Facts, scope.FromTime, T0 + second);
-      var input = Cache.Index.CaptureMeterInput(scope.Rows, Facts, scope.FromTime, T0 + second);
+      DamageOverlayScope scope;
+      do
+      {
+        var candidates = Lifecycle.SelectCandidates(1, rows, mode);
+        Calculation.Activity.Update(Cache.Index.CaptureMeterInput(candidates.Rows, Facts, candidates.FromTime,
+          double.PositiveInfinity, candidates.FirstOrdinal));
+      } while (!Lifecycle.TrySelect(1, rows, T0 + second, mode, Arrivals.Latest(Facts, Timeline, mode, panels),
+        Facts.FactCount, out scope, activity: Calculation.Activity.For, panels: panels));
+      Expected = DerivedTotals.ForOverlay(scope.Rows, Cache.Index, Facts, scope.FromTime,
+        double.PositiveInfinity, scope.FirstOrdinal);
+      var input = Cache.Index.CaptureMeterInput(scope.Rows, Facts, scope.FromTime,
+        double.PositiveInfinity, scope.FirstOrdinal, scope.WindowSecond);
       Last = Calculation.Update(input);
       DamageMeterAssert.Equal(Expected, Last);
-      if (compareFresh) DamageMeterAssert.Equal(Expected, new DamageMeterCalculation().Update(input));
+      if (compareFresh)
+      {
+        Fresh = new DamageMeterCalculation().Update(input);
+        DamageMeterAssert.Equal(Expected, Fresh);
+      }
     }
   }
 }

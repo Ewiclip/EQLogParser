@@ -166,7 +166,12 @@ namespace EQLogParser
         ConfigUtil.SetSetting("TriggersWatchForQuickShare", true);
       }
 
-      // upgrade
+      /*
+       * One-way upgrade from the era when crit display was a yes/no flag: a settings file still carrying OverlayShowCritRate gets the newest
+       * mode (both DoT and nuke), OVERWRITING whatever OverlayEnableCritRate already holds — an old flag wins over a newer value, which is what
+       * it meant to do back then. This runs at startup, before anything saves, so it is not deafened by ConfigUtil.Save() dropping that key as
+       * retired; the effect is at most one more migration for anyone who has not started the app since.
+       */
       if (ConfigUtil.IfSet("OverlayShowCritRate"))
       {
         ConfigUtil.SetSetting("OverlayEnableCritRate", "3");
@@ -413,7 +418,12 @@ namespace EQLogParser
       if (_damageOverlays.Forget(window)) AppSettings.IsDamageOverlayOpen = false;
     }
 
-    internal void OpenDamageOverlayIfEnabled(bool reset, bool configure)
+    /*
+     * `revealOnContent` is for the times a meter opens itself — after a load, on resume, on the auto-open that follows fresh combat: it
+     * must not be seen before its first build has anything to list, so it appears transparent and the window raises itself once a paint
+     * drew rows. A meter the operator opened from the menu appears at once, because a click with no feedback reads as a broken menu.
+     */
+    internal void OpenDamageOverlayIfEnabled(bool reset, bool configure, bool revealOnContent = false)
     {
       if (configure)
       {
@@ -431,7 +441,9 @@ namespace EQLogParser
           _damageOverlays.Replace(window);
           window.Show();
           window.UpdateLayout();
-          window.Opacity = 1.0;
+
+          if (revealOnContent) window.RevealOnFirstContent();
+          else window.Opacity = 1.0;
           AppSettings.IsDamageOverlayOpen = true;
         }
       }
@@ -619,7 +631,7 @@ namespace EQLogParser
       // save once loaded but also if backup isnt trying to shutdown
       if (!_isStarting && Application.Current.ShutdownMode != ShutdownMode.OnExplicitShutdown)
       {
-        /* Writes settings.ini from the UI thread, once a half minute. */
+        // Flush pending settings on the dispatcher; unchanged settings do not rewrite the file.
         ConfigUtil.Save();
       }
     }
@@ -642,7 +654,7 @@ namespace EQLogParser
           Log.Info("system: resumed - triggers restarted, monitor overlays re-opened");
           _saveTimer?.Start();
           await TriggerManager.Instance.StartAsync();
-          OpenDamageOverlayIfEnabled(true, false);
+          OpenDamageOverlayIfEnabled(true, false, revealOnContent: true);
           SubscribeOverlayFights();
           break;
       }
@@ -679,7 +691,7 @@ namespace EQLogParser
         {
           if (_damageOverlays.Current is null)
           {
-            OpenDamageOverlayIfEnabled(false, false);
+            OpenDamageOverlayIfEnabled(false, false, revealOnContent: true);
           }
         });
       }
@@ -1167,6 +1179,8 @@ namespace EQLogParser
 
       if (enabled)
       {
+        // Disabled meters do not verify receipts. An empty opening cache must not prevent the worker that fills it from running.
+        if (!DerivedMeter.HasActivity()) DeriveEngine.Active?.RederiveAsync();
         OpenDamageOverlayIfEnabled(true, false);
       }
       else
@@ -1474,7 +1488,7 @@ namespace EQLogParser
             {
               closeLogFile.IsEnabled = true;
               saveLogFile.IsEnabled = true;
-              OpenDamageOverlayIfEnabled(true, false);
+              OpenDamageOverlayIfEnabled(true, false, revealOnContent: true);
               SubscribeOverlayFights();
             }, DispatcherPriority.DataBind);
           }
@@ -1607,7 +1621,7 @@ namespace EQLogParser
 
             // One reader, one lane, file order: the session's own capture is what the processor fills (see LogReader's
             // class comment for why reading stays single-threaded).
-            _eqLogReader = new LogReader(new LogProcessor(theFile, chatSink, new TriggerHookAdapter()), theFile, origin, lastMins);
+            _eqLogReader = new LogReader(new LogProcessor(chatSink, new TriggerHookAdapter()), theFile, origin, lastMins);
             /*
              * Start the read loop OFF this thread - and Task.Run is needed even though LogReader made all of its own
              * awaits context-free, because the first segment runs on whoever called and everything here is already inside a

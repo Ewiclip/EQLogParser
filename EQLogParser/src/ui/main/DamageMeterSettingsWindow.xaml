@@ -6,6 +6,7 @@
         xmlns:syncfusion="http://schemas.syncfusion.com/wpf"
         xmlns:shared="clr-namespace:Syncfusion.Windows.Shared;assembly=Syncfusion.Shared.WPF"
         xmlns:NumberFormat="clr-namespace:System.Globalization;assembly=mscorlib"
+        xmlns:local="clr-namespace:EQLogParser"
         mc:Ignorable="d"
         Title="Damage Meter Settings"
         WindowStyle="None"
@@ -24,6 +25,11 @@
        the stage immediately and touches no ini file; Save commits and hands the meter back to the game, Cancel walks
        away and the reopened meter reads the old values back off disk. The inline control panel that used to live on
        the overlay itself is gone: a settings form drawn on top of the thing it configures was never the deal. -->
+  <Window.Resources>
+    <!-- The same checkbox-in-a-dropdown template the FCT panel, the breakdown column pickers and the trigger overlays editor
+         use: closing the dropdown is what commits, which is also when the combo's face rewrites itself to say how many are on. -->
+    <local:ComboBoxItemTemplateSelector x:Key="CheckSelector" />
+  </Window.Resources>
   <Border Background="{DynamicResource ContentBackground}" BorderBrush="{DynamicResource ContentBackgroundAlt3}"
           BorderThickness="1" CornerRadius="8" Padding="12,10,12,12"
           TextElement.FontSize="{DynamicResource EQDescriptionSize}">
@@ -103,21 +109,24 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
               </Grid.RowDefinitions>
 
               <CheckBox x:Name="hideCheck" Grid.Row="0" Grid.ColumnSpan="2" Margin="0,5" Content="hide other players"
                         Checked="ControlChanged" Unchecked="ControlChanged"
                         ToolTip="Mask every name but yours" />
-              <CheckBox x:Name="percentCheck" Grid.Row="1" Grid.ColumnSpan="2" Margin="0,5" Content="show % damage"
-                        Checked="ControlChanged" Unchecked="ControlChanged"
-                        ToolTip="Each row's share of the damage dealt" />
-              <CheckBox x:Name="streamerCheck" Grid.Row="2" Grid.ColumnSpan="2" Margin="0,5" Content="streamer mode"
+              <CheckBox x:Name="streamerCheck" Grid.Row="1" Grid.ColumnSpan="2" Margin="0,5" Content="streamer mode"
                         Checked="ControlChanged" Unchecked="ControlChanged"
                         ToolTip="The meter gets its own normal window so screen capture tools like OBS can grab it" />
 
-              <TextBlock Grid.Row="3" Text="class filter" VerticalAlignment="Center" Foreground="{DynamicResource ContentForegroundAlt}"
+              <TextBlock Grid.Row="2" Text="class filter" VerticalAlignment="Center" Foreground="{DynamicResource ContentForegroundAlt}"
                          ToolTip="Show only one class's numbers, or everyone" />
-              <ComboBox x:Name="classCombo" Grid.Row="3" Grid.Column="1" Margin="0,3" SelectionChanged="ControlChanged" />
+              <ComboBox x:Name="classCombo" Grid.Row="2" Grid.Column="1" Margin="0,3" SelectionChanged="ControlChanged" />
+
+              <TextBlock Grid.Row="3" Text="columns" VerticalAlignment="Center" Foreground="{DynamicResource ContentForegroundAlt}"
+                         ToolTip="Which numbers each row draws. Names, ranking bars and elapsed seconds always show; hiding a column reserves no space for it" />
+              <ComboBox x:Name="columnCombo" Grid.Row="3" Grid.Column="1" Margin="0,3"
+                        ItemTemplateSelector="{StaticResource CheckSelector}" DropDownClosed="ColumnsDropDownClosed" />
 
               <TextBlock Grid.Row="4" Text="crit rate" VerticalAlignment="Center" Foreground="{DynamicResource ContentForegroundAlt}"
                          ToolTip="Show crit rate alongside the numbers: DoT crits, nuke crits or both; assumes max level and AAs" />
@@ -141,6 +150,14 @@
                 <ComboBoxItem Tag="50">50s</ComboBoxItem>
                 <ComboBoxItem Tag="60">60s</ComboBoxItem>
                 <ComboBoxItem Tag="90">90s</ComboBoxItem>
+              </ComboBox>
+
+              <TextBlock Grid.Row="6" Text="tabs" VerticalAlignment="Center" Foreground="{DynamicResource ContentForegroundAlt}"
+                         ToolTip="Which tabs the meter has. A tab you do not show cannot open the window or keep it on screen; the hidden numbers still count underneath, so switching back needs no warm-up" />
+              <ComboBox x:Name="panelsCombo" Grid.Row="6" Grid.Column="1" Margin="0,3" SelectionChanged="PanelsChanged">
+                <ComboBoxItem Tag="1">Damage only</ComboBoxItem>
+                <ComboBoxItem Tag="2">Tanking only</ComboBoxItem>
+                <ComboBoxItem Tag="3">Both</ComboBoxItem>
               </ComboBox>
             </Grid>
           </StackPanel>

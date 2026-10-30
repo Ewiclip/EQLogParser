@@ -1,8 +1,6 @@
-// The staged configuration of the damage meter, carried between the settings window and the preview stage.
-// Load() reads the ini with exactly the guards the overlay constructor uses, so a fresh copy is the truth the user
-// started from; the settings window mutates this copy, every change previews it onto the stage, and only Save writes
-// it back (CommitMeterState). Geometry deliberately stays OUT of this object: dragging and resizing the stage is the
-// geometry editor, and Save captures whatever rectangle the stage ended on.
+// Shared settings reader for the meter and its staged preview; only Save persists changes.
+// Geometry is edited on the stage and captured at Save. MeterColumns owns the column-key fold.
+// docs/DesignNotes.md → "Damage meter column switches: hiding one reserves no width".
 
 namespace EQLogParser
 {
@@ -11,17 +9,42 @@ namespace EQLogParser
     internal int MaxRows = 5;                    // 1..10 ranked rows
     internal int FontSize = 12;                  // one of 10/12/14/16
     internal bool MiniBars;                      // slim ranking bars
-    internal bool ShowDamagePercent;             // each row's share of the total
+    internal MeterColumn Columns = MeterColumns.Default;
     internal bool HideOtherPlayers;              // mask everyone but me
     internal bool StreamerMode;                  // own window style for OBS
     internal int CritRateDisplay;                // 0 off, 1 DoT, 2 nuke, 3 both
     internal int DamageResetMode;                // 0 = on kill, otherwise seconds before zeroing
+
+    // Which panels exist at all — and therefore which kinds of activity may open the window or keep it up. Distinct from
+    // OverlayShowingDps, which only says which of the two a Both meter is currently looking at.
+    internal MeterPanels Panels = MeterPanels.Both;
     internal string SelectedClass = Resource.ANY_CLASS;
     internal string ProgressColor = "#FF1D397E";
     internal string HighlightColor = "Gold";
 
-    // Same keys, same fallbacks the overlay constructor honours, so opening setup always starts from what is on
-    // screen right now.
+    /*
+     * The panel choice, stored as the flags value itself (Damage 1, Tanking 2, Both 3) so `None` is unreadable: a missing key, junk, or a
+     * hand-written 0 all land on Both, which is the one thing that keeps a meter from being configured into having no tabs. Its own method
+     * because the derive path asks this every classified pass (the auto-open announcement) and must not build a whole state object to ask
+     * one question; this remains the only place the key is judged.
+     */
+    internal static MeterPanels LoadPanels()
+    {
+      var panels = ConfigUtil.GetSettingAsInteger("OverlayMeterPanels");
+      return panels is (int) MeterPanels.Damage or (int) MeterPanels.Tanking or (int) MeterPanels.Both
+        ? (MeterPanels) panels
+        : MeterPanels.Both;
+    }
+
+    // Auto-open and the live window must accept the same modes; receipt runs refuse values outside this domain.
+    internal static int LoadResetMode()
+    {
+      var mode = ConfigUtil.GetSettingAsInteger("OverlayDamageMode");
+      return mode is >= 0 and <= MeterReceiptRuns.MaxMode ? mode : 0;
+    }
+
+    // Every guard lives here and nowhere else: out-of-range or unreadable values fall back to what a meter without that key would
+    // draw, which is what both the setup window and a freshly opened overlay show.
     internal static DamageMeterConfigState Load()
     {
       var s = new DamageMeterConfigState();
@@ -38,17 +61,15 @@ namespace EQLogParser
         s.MaxRows = r;
       }
 
-      var mode = ConfigUtil.GetSettingAsInteger("OverlayDamageMode");
-      if (mode >= 0 && mode <= 100)
-      {
-        s.DamageResetMode = mode;
-      }
+      s.DamageResetMode = LoadResetMode();
 
       var crit = ConfigUtil.GetSettingAsInteger("OverlayEnableCritRate");
       s.CritRateDisplay = crit is >= 0 and <= 3 ? crit : 0;
 
+      s.Panels = LoadPanels();
+
       s.MiniBars = ConfigUtil.IfSet("OverlayMiniBars");
-      s.ShowDamagePercent = ConfigUtil.IfSet("OverlayShowDamagePercent");
+      s.Columns = MeterColumns.Load();
       s.HideOtherPlayers = ConfigUtil.IfSet("OverlayHideOtherPlayers");
       s.StreamerMode = ConfigUtil.IfSet("OverlayStreamerMode");
 

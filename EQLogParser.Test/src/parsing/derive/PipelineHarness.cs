@@ -12,6 +12,13 @@ namespace EQLogParser;
 // them (FightProjection.Build is the call the app's DeriveEngine makes).
 internal static class PipelineHarness
 {
+    // The local player a capture gets when neither its filename nor its test names one. Deliberately a word no fixture
+    // uses, so a row or verdict built under it cannot be mistaken for a log's own name.
+    internal const string FixturePlayerName = "Localplayer";
+
+    // Track only names assigned here; retaining a test's choice must not turn it into harness drift.
+    private static string? _playerNameWrittenByHarness;
+
     private static EQDataStore? _dataStore;
 
     internal sealed record DeriveRunResult(
@@ -69,6 +76,13 @@ internal static class PipelineHarness
     {
         var (facts, heals, timeline) = RunCore(path, onEvent);
         return new DeriveRunResult(facts, timeline, heals);
+    }
+
+    // An explicit choice can equal the previous filename's player; a raw field write cannot express that distinction.
+    internal static void SetFixturePlayerName(string name)
+    {
+        ConfigUtil.PlayerName = name;
+        _playerNameWrittenByHarness = null;
     }
 
     // CWD so EQDataStore's data/ lookup resolves (the test csproj copies the repo data/ into bin).
@@ -142,12 +156,19 @@ internal static class PipelineHarness
         var priorEmu = AppSettings.IsEmuParsingEnabled;
         AppSettings.IsEmuParsingEnabled = Environment.GetEnvironmentVariable("EQLP_EMU") == "1";
 
-        // The app derives the local player from the log filename (eqlog_(Player)_(Server).txt);
-        // do the same so You-mapping and the R0-local rule behave as they will in production.
-        // Fixture names never match, so synthetic runs keep PlayerName untouched.
-        var selfMatch = System.Text.RegularExpressions.Regex.Match(
-            Path.GetFileNameWithoutExtension(path), @"^eqlog_(.+?)_.+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        if (selfMatch.Success) ConfigUtil.PlayerName = selfMatch.Groups[1].Value;
+        // Keep the chosen name through classification, but replace inherited harness names on the next capture.
+        // docs/DesignNotes.md → "A You line needs a local player, and not out of whoever ran first".
+        if (FileUtil.ParseFileName(path, out var playerName, out _))
+        {
+            ConfigUtil.PlayerName = playerName;
+            _playerNameWrittenByHarness = playerName;
+        }
+        else if (string.IsNullOrEmpty(ConfigUtil.PlayerName)
+                 || string.Equals(ConfigUtil.PlayerName, _playerNameWrittenByHarness, StringComparison.Ordinal))
+        {
+            ConfigUtil.PlayerName = FixturePlayerName;
+            _playerNameWrittenByHarness = FixturePlayerName;
+        }
 
         // Clear parser state left by other tests in this process (assembly is serialized, not isolated).
         DamageLineParser.ResetProcessState();
@@ -198,7 +219,7 @@ internal static class PipelineHarness
         using var items = new BlockingCollection<LogReaderItem[]>(new ConcurrentQueue<LogReaderItem[]>(), 20);
         // capture came from `new` three lines up: an `is not null` check here would not just be
         // dead, it poisons the flow analysis and makes every later `capture.` a CS8602.
-        using var processor = new LogProcessor(path, new CaptureSinks(capture), new NoOpSinks());
+        using var processor = new LogProcessor(new CaptureSinks(capture), new NoOpSinks());
         processor.LinkTo(items);
 
         const int batchSize = 5000;

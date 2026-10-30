@@ -94,7 +94,9 @@ These checks require a realized grid; the automated pane tests exercise bound da
 - [ ] **Select Group replaces; a modifier on the press makes it add** (2026-10-14): with fights selected in three groups, plain-right-click
   a fight in one group and choose Select Group — **only that group's visible fights stay selected**, everything else is deselected, and the
   boards answer for exactly that pull. Repeat holding **Ctrl** on the right-click, then again holding **Shift**: the group is **added** and the
-  other groups survive. Three traps to walk. Release the modifier before clicking the menu item: it still **adds**, because the PRESS decides
+  other groups survive. Hold Ctrl **before** pressing the right button, keep both held for several seconds, then release the right
+  button and choose Select Group. Repeat across many groups, including already selected ones, without releasing Ctrl: every
+  chosen group joins the set and earlier groups survive. Repeat with right Ctrl and both Shift keys. Three traps to walk. Release the modifier before clicking the menu item: it still **adds**, because the PRESS decides
   and the hand is expected to have moved by the time the item is clicked. Open the menu from the keyboard with a big selection standing (Apps,
   then Shift+F10) — that is plain, and **Shift's own keystroke must not buy additive mode**. Dismiss a Ctrl menu with Esc, then plain-right-click
   and choose Select Group: it must **replace** — an abandoned or finished Ctrl press may not leak into the next menu. Then turn Inactivity or Tanking off so part of the group is hidden: the replacing select keeps only visible fights, and an
@@ -137,7 +139,10 @@ These checks require a realized grid; the automated pane tests exercise bound da
   folders, disable a character or minimize the main window, then show them again and verify playback resumes. Change reader
   status while hidden so a different GIF/controller is initialized, then repeat. Compare idle CPU/memory with the pane
   hidden and visible; do not interpret legitimate visible-animation allocations as a regression. The helper's Windows
-  tests cover hidden-controller pause state; the temporary runtime clock-inspection menu has been removed.
+  tests target hidden-controller pause state; the temporary runtime clock-inspection menu has been removed.
+  Re-run `VisibleGifAnimationTest` on Windows after switching its off-screen fixture from `Window` to an STA-owned
+  `HwndSource`. If a constructor still times out, report its new hwnd/attachment/image/animation/controller diagnostics
+  before changing the playback helper.
 - [ ] **The load's cleanup pause sits behind the band, and actually returns memory** (2026-10-13): open a large log (several million lines) and watch the fight list.
   At 100 % the band stays up — *Building the Fight List…* while the first full derive and its boards run — then both the band and the application status line say
   *"Cleaning up.."* for the pause, and the grids appear **after** it. Three things to confirm: (a) no freeze lands on an already-readable grid (that is how the old
@@ -224,26 +229,58 @@ These checks still require Windows for popup/hide behavior. See DesignNotes → 
   `Combined (10): <top mob>`. The digits and the name must agree between them; only the prefix differs. One mob on the meter prints no prefix at all,
   and a zeroed meter over a single encounter must not grow one.
 - [ ] **A kill closes it** (2026-11): mode "On Kill", kill a mob (a real death line, not a mob you walked away from) and stop attacking.
-  The board must stay readable for a few seconds, then clear roughly 8-10 s after the death — not linger the rest of the session,
-  and not vanish before the total can be read. Past ~30 s it must also close on a mob that simply never died.
+  The completed board closes about eight seconds after receipt of the last eligible damage. The death selects the final result but
+  does not renew the damage receipt. With no death, On Kill closes about 30 seconds after that receipt.
 - [ ] **A lull does NOT reset the numbers** (the case a purely time-based close gets wrong): damage a mob, do nothing for 12-20 s while
   nobody else hits anything, damage the same mob again. One board, one total — both hits in it, duration measured from the first swing.
   If the first hit disappeared, silence was treated as a kill.
+- [ ] **A silent board is frozen, then ends in one step** (2026-12): have two or three mobs on the board, then stop all damage and watch
+  for a full 30 seconds. No row may leave and no total, rate or percentage may move — membership is measured from the capture's newest
+  second, so with nothing arriving the board is static — and then the whole board must close at once when that deadline passes (On Kill:
+  ~30 s after receipt of the last accepted record, regardless of its log timestamp). Rows dropping out one by one, or a raid total shrinking while nobody is hitting anything, is the
+  old wall-clock pruning coming back.
+- [ ] **Enable verifies a settled disabled capture:** disable the meter, capture eligible combat, and let derivation settle with no
+  further input. Enable before the receipt's timeout: the worker must verify and open it without needing another log line. Repeat
+  after the timeout: enabling must not renew the receipt or show expired damage. Disabling again before verification finishes must
+  prevent opening. This checks the real gesture wiring; the headless receipt test checks only cache/freshness semantics.
 - [ ] **A one-shot shows its numbers**: kill a low-HP mob in a single hit (or open the overlay a second after a pull you already won).
   The board must appear with the killing blow included, even if no live frame was ever painted. It must not reopen repeatedly for that kill.
 - [ ] **The next pull starts fresh before the display hold ends**: kill A and attack B within eight seconds. B's totals/time must exclude A,
   without needing the overlay to hide first. Repeat with A and B sharing a name and with both appearing in one log second.
+- [ ] **Avoidance cannot revive another pull:** after A's On Kill result expires, miss B or dodge B's attack before any positive
+  damage on B. A's amounts must not return, before or after projection catches up. Repeat with A killed, B's attempt stamped in the
+  same log second as A's death, and delayed receipt of that attempt. An attempt before A's death and same-second killing blows must
+  still leave A's legitimate final result readable. B's first positive hit opens only B's result.
 - [ ] **A survivor keeps its own totals**: damage A and B, then kill A. B retains all of its earlier damage/time. Wait 12 seconds and hit
   B again without a death: it is still the same total. Check the tanking view too; A's incoming-damage contribution must disappear.
+- [ ] **Reopening cannot revive old RDPS:** hit A for 600 at log second 100, hit B at 110, then kill B while A remains alive.
+  A retains its encounter damage but contributes zero RDPS at the established second-110 edge. Reopen the meter and force a filter
+  recount without new damage: it must still contribute zero. Repeat for Tank; a death itself must not advance the RDPS edge.
 - [ ] **An unchanged completed board stays unchanged**: finish a fight longer than eight seconds and reopen the overlay promptly.
   Refreshes must not lose its early hits; the final display disappears after its grace period.
 - [ ] **Our own deaths do not close it**: get a party member or your own pet killed while the overlay is open and keep fighting. The
   board must not blank or reset because something on our side died.
-- [ ] **Time-based modes still behave**: set 3 s, 5 s and 10 s. Board closes ~that long after the last accepted combat
+- [ ] **Time-based modes still behave**: set 3 s, 5 s and 10 s. Board closes ~that long after receipt of the last accepted combat
   record (including avoidance), kill seen or not;
   a continuous fight never blanks mid-pull. At 3 s, attacks two seconds apart (including a new opponent) must both remain
   counted even when projection briefly lags; then stop attacking and verify that three seconds of real silence hides and resets
   it without extra grace. Known NPC-only noise must not extend that timeout while projection is behind.
+- [ ] **A missed timed gap still resets**: at 3 s, close the meter after an attack, wait more than three seconds, then attack
+  continuously for longer than three seconds before reopening. Only the entire new run counts, not the old attack and not just its
+  last three seconds. Repeat with Tank and with two receipts sharing a log timestamp. Pause the receipt worker for over 120 seconds:
+  continuous eligible arrivals preserve the accumulation; a genuine quiet gap removes only the earlier run. A quiet log adds no backlog.
+- [ ] **Historical imports cannot wake the live meter**: enable the meter, open two days of history whose last combat was 14 hours ago.
+  The fight list and summaries populate, but the meter stays hidden. Repeat with On Kill and timed modes, Damage-only and Tanking-only.
+  Then append current combat: it opens normally without reopening the file. Old or future-dated appended damage alone cannot wake or
+  renew it; filter changes, re-derive, enable and mode changes must not turn stale history into a new receipt.
+- [ ] **Source freshness and receipt timeout are separate**: with a ten-second reset, a line received eight seconds late qualifies
+  and still buys ten seconds from receipt; a line already more than ten seconds old cannot activate or renew that mode. Damage, DPS,
+  RDPS and Sec remain log-time calculations, frozen during silence. Filter/rebuild requests must not renew the deadline.
+  Repeat Reset with a new hit in the same log second: only the post-click ordinal counts. On a five-second timed opening, feed A damage
+  at log second 0, B damage at 6, then an A miss at 10, all received together at wall second 10. The first board must already show only B, with unchanged seconds/DPS on subsequent silent
+  ticks. Repeat after Reset and timed expiry, and for Tank. Pause a receipt worker after `BeginRead`, append fresh damage, then resume it:
+  expiry must not cut away the appended, unchecked receipt. Also pause after the pending scan but before `BeginRead`, then append
+  B's miss in A's death second: the newer receipt must trigger a refreshed pending scan, not reopen A's completed amounts.
 - [ ] **A blocked counting worker cannot strand the toolbar** (issue #416): use a ten-second reset, paint a board, then
   hold only its worker with a debugger while leaving the dispatcher responsive. After verified activity expires, both
   toolbar and body hide within the next timer tick. Releasing the worker must not flash its expired result back on screen.
@@ -260,8 +297,12 @@ These checks still require Windows for popup/hide behavior. See DesignNotes → 
   verify that cached activity is recomputed. Ordinary healing, casts and taunts must not keep it visible.
   In On Kill, kill A with included damage, then hit/kill B using only excluded damage: A keeps its original final-display
   deadline. Included damage to B must still replace that final display immediately.
-- [ ] **Header is one compact, level row**: check fonts 10, 12, 14 and 16, normal/thin bars, damage/tanking, percent on/off
-  and light/dark themes. Left controls and DPS/Tank must sit level with Damage/DPS/Sec, with roughly four pixels of visible
+- [ ] **Partial exclusions hide without prematurely retiring amounts:** with a ten-second mode, receive ordinary damage at 0
+  and Bane damage at 9. Disable Bane at 11: the older ordinary receipt cannot keep the board visible. Restore Bane and reopen before
+  19: both amounts remain available. Leave it excluded past 19 instead: the old accumulation retires and the next hit starts fresh.
+  Repeat Damage-only and Both; narrowing from Both to Damage-only must use Damage's own timeout, not the hidden Tanking receipt.
+- [ ] **Header is one compact, level row**: check fonts 10, 12, 14 and 16, normal/thin bars, damage/tanking, `%` shown and hidden (Setup → STYLE → **columns**,
+  since the old *show % damage* checkbox folded into that picker) and light/dark themes. Left controls and DPS/Tank must sit level with Damage/DPS/Sec, with roughly four pixels of visible
   space above the header and before the first player—not a native-window-sized empty band. Check the first opening too:
   header spacing follows the controls' content height even if Windows keeps the companion window taller; its native
   minimum must not become space above the player rows. Content must still fit at every font/DPI.
@@ -298,6 +339,11 @@ compact accounting, paired publication". These checks are not satisfied by a Lin
 - [ ] **Immediate gestures:** switch DPS/Tank while a large initial build/correction is running. Reset and Configure
   must remain responsive, and resetting must clear immediately without old bars returning. Repeat Reset then X-close
   and reopen before the old worker finishes; scalar reset state must survive without the old worker committing it.
+- [ ] **Input churn yields instead of trapping a refresh:** hold only the meter worker between its scan and snapshot validation,
+  allow a derive to replace that snapshot, and repeat through three attempts. The ask must defer and release its worker without
+  clearing still-fresh bars, changing the saved reset boundary or renewing the old presentation deadline. Continued churn must not
+  prevent normal expiry; once inputs settle, an existing timer/derive request must recover. Repeat with exclusions changing and
+  with timed-mode opening/Reset; a superseded capture or closed window must never paint afterward.
 - [ ] **Copy is the displayed revision:** copy both views during live growth, including more participants than bars,
   a class filter, pet labels and Special text. Change Parse Preview formatting afterward. New damage in the same log
   second must not change the copied totals. The open summary boards must keep their own answers.
@@ -308,6 +354,174 @@ compact accounting, paired publication". These checks are not satisfied by a Lin
   Historical record reconstruction must not recur each tick, but clock-block sorting, lifecycle scans and auxiliary
   annotations still scale with metadata. The headless 14,101-life THJ append exceeded the proposed 100 ms worker
   target; verify the actual supported workload before calling the long-session release gate complete.
+
+### Six-second RDPS column, checked on Windows (2026-10-20)
+
+The window arithmetic (six labels, divide by six from the first hit, the window riding **log** time and reading no build instant anywhere, pet folding, Tank
+attribution) is pinned headless; see DesignNotes → "Six-second RDPS: per-life buckets beside the meter's own amounts". Everything below is rendering or live behavior
+no headless run can see. The column now has its own switch (`OverlayShowRdpsColumn`, **off** until somebody turns it on — see "Damage meter column switches, checked
+on Windows" below), and a zero prints as `0` (a dash for "no damage in the window" is an open preference, not current behavior).
+
+- [ ] **The header lands over its columns at every font and DPI**: fonts 10, 12, 14 and 16, normal and mini bars, light/dark, damage and
+  tanking, mixed-DPI monitors. `RDPS` must sit over its own column, `%`/`Damage`/`DPS` must not have moved from before the column existed,
+  and `Sec` stays where it was. The header no longer has hand-tuned per-font margins: it is a grid sharing every row's column widths and right
+  insets (`MeterColumnLayout` → `DamageOverlayWindow.ApplyColumnLayout`), which is why this check still decides anything that looks off. Correct a
+  drifting word in the layout's inset/width presets, never by moving a value path or nudging one label.
+- [ ] **Digits stay put as they grow**: watch one row cross 999 → `1.0K` → `1.0M` in RDPS. Nothing may reflow the table, clip into DPS or
+  overlap `Sec`, and the name/icon area must not be covered — including the longest name you can produce (hidden-player rows, `[DoT +n]`
+  crit-rate suffix) at a narrow saved width.
+- [ ] **A narrow window widens at every font; nothing shrinks**: the minimum is computed per font — numeric block plus a 96-DIP name/icon
+  allowance — so the row-only floor with **every column visible** is **368/410/456/488** DIP at 10/12/14/16 pt. The live toolbar may raise
+  that floor further; the floor follows the column switches, so turn them all on before measuring these figures. At each font
+  size, start from a saved `OverlayWidth` under that figure, reopen the overlay, and confirm the window returns at or above that
+  floor with names still readable left of the class icon. Then widen and narrow by hand: the meter never auto-shrinks, the widened value is
+  what gets saved, and neither `OverlayHeight` nor the toolbar reserve changes because a column was added. Report crowding **with the font size**.
+- [ ] **Quiet freezes it, like every other column**: hit once, then everyone stops. RDPS keeps showing its last value while Damage, DPS and Sec do the same thing
+  (nothing decays on a capture that stopped producing lines), and the whole board retires on the meter's own quiet period — On Kill's engagement gap or the timed mode's
+  seconds. Then keep the raid hitting while you stop: your RDPS must fall to 0 within about six seconds as the shared window slides past your last hit, in steps rather
+  than a fade. Repeat after a burst of several hits.
+- [ ] **Late lines still read full — the honesty gate**: with damage flowing, compare RDPS against what the log says the last six logged seconds
+  did, while lines visibly arrive late (chat behind the fight, a burst landing in one clump). The column must read the damage that *exists*, not
+  shrink because the file is lagging. The failure to report is a rate about `(6 − lag)/6` of what it should be while hits flow, or one that reaches 0 while damage is
+  still landing on screen — either means something reads the PC clock for the window instead of the log's own seconds.
+- [ ] **A stalled worker resumes rather than corrupting**: hold the counting worker (debugger) for several seconds and release it. Values sitting where they were *is*
+  the freeze law, not a bug; what must happen is that the released worker resumes normally, the first pass after release reads full (no half-windowed rate), and a board
+  whose data went far enough back still retires. Report a meter that never recovers or never goes away.
+- [ ] **Tank reads incoming, per defender**: check a pet tanking alongside its owner — the pet keeps its own row and its own rate, the owner is
+  not charged for it, and switching DPS/Tank shows one rate per view without either number moving the other's accounting.
+- [ ] **Pets fold once on the damage side**: with a pet out, RDPS appears on the `X +Pets` row as one value summed before the divide — not a
+  rate per pet row and not the visible bars' rates added together. Hide other players and class-filter the panel: the totals row's RDPS must
+  not shrink with what is on screen. If any actor shows **two rows**, or a pet's rate sits beside the pet's own name, report it — the rolling
+  lane resolves rows through the encounter column's own resolver and has to agree with it.
+- [ ] **The window belongs to this pull**: kill A, then pull B within six seconds — A's rolling damage must not join B. In a timed mode, a retained completed fight
+  keeps both its totals and its last rolling rate while nothing newer arrives; what it may never do is lend that damage to the next pull's rate.
+- [ ] **Nothing else moved**: copied parse contains no RDPS anywhere, the summary boards' DPS/duration/share are unchanged during the same
+  raid, and the meter's numbers still agree with an equivalent fight-list selection.
+
+### Damage meter column switches, checked on Windows
+
+`% / Damage / DPS / RDPS / SDPS` each hide through their own key, driven by the **columns** picker in Damage Meter Setup → STYLE; names, ranking bars and
+elapsed seconds always draw. The table, the defaults and the zero-width law are pinned headless (`MeterColumnLayoutTest`) and described in DesignNotes →
+"Damage meter column switches: hiding one reserves no width". What follows is what only a screen can answer.
+
+- [ ] **The dropdown explains RDPS and nothing else**: its rows read `%`, `Damage`, `DPS`, `RDPS (6s rolling)`, `SDPS` — SDPS stays bare on purpose, the word is what
+  operators say and the tooltip carries the denominator — and the meter's header cell still reads bare `RDPS` over its own digits. The wording is headless-pinned
+  (`MeterColumnLayoutTest.ThePickerExplainsRdpsWhileTheMeterKeepsTheBareWord`); what only a screen can answer is that the longer phrase does not clip or wrap inside the box at
+  fonts 10-16, on either panel (damage and tanking share the same five switches), and that ticking a row lands its own `OverlayShow…Column` key.
+- [ ] **SDPS is the raid's clock while DPS is the player's**: on a capture where somebody joined late or died for a while, that name reads its true rate under DPS and a
+  clearly smaller figure under SDPS, sitting immediately right of RDPS with `Sec` still last. On the raid/title row the two rate cells agree by definition (the raid divides by
+  its own span) — repeat is correct there, a blank cell is not. Ranking, totals and duration must not move when the column comes on (`MeterColumns` reaches no calculation);
+  a name that was there the whole capture shows the same number in both rate columns.
+- [ ] **It looks like it did before you touched anything**: on an install that predates this change (no `OverlayShow*` column keys), the meter shows
+  `Damage`, `DPS`, `Sec` and no percent — the pre-RDPS look. Somebody who had RDPS on this branch sees that column disappear and nothing else move; turning it
+  back on via the picker must show full numbers immediately, with no six-second warm-up and no half-windowed rate. A `settings.txt` written by an earlier build of this
+  branch may hold `OverlayShowRdps` / `OverlayShowDamage` / `OverlayShowDps` — names that never shipped and now read as **nothing**, which is why RDPS returns off rather
+  than broken. Save writes the `…Column` keys; those three ignored lines may remain in the file. They are neither read nor migrated.
+- [ ] **The `%` reset is the only thing a returning user should notice**: the switch left the OPTIONS page (it was *show % damage*) and lives in the columns picker as
+  `OverlayShowPercentColumn`. The old choice deliberately does **not** carry over — `OverlayShowDamagePercent` is read by nothing and vanishes from `settings.txt` at the next
+  save — so an install that had it on opens with no percent digits. Confirm all three halves: ticking the box once brings the digits back immediately, that tick survives a restart
+  (the new key was written), and nothing crashes or misbehaves because a line they had for years disappeared. Losing it permanently is not expected to matter; if it does, the fix
+  is one extra read of the old name in `MeterColumns.Load()`, not a migration pass.
+- [ ] **A hidden column reserves nothing**: hide `Damage`, then `%`, then each of the five in turn. No gap may sit where the number was, the remaining numbers must
+  not move closer together or further apart, and names must not gain or lose room unevenly. **Check this in thin bars too** — mini mode has its own per-column text
+  margins, and a hidden column that keeps one leaves a hole nothing else can explain.
+- [ ] **The header goes with its column and lands over its digits**: `%` now prints a literal `%` where the header used to be blank — every header word is spelled by
+  `MeterColumns` and applied at layout time, so the markup carries none and a wrong or missing word is corrected in that table, never in this window's XAML. With any
+  subset of columns on, each remaining word sits over its own numbers at fonts 10/12/14/16, normal and thin bars, light and dark. A word that no longer has a column
+  must not leave a ghost.
+- [ ] **A number ending past its cell does not land on the next one**: the right insets are per column and several are negative, so a `%` or `Damage` figure ends outside
+  its own cell inside the neighbour's empty space. Hide that neighbour (`%` + `DPS` with `Damage` off at 10 pt is the tightest case; then `RDPS` + `SDPS` with everything
+  else off — two negative-inset rate cells now sit side by side) and check the widest digits you can produce still do not touch. Correct it in the inset preset, not by moving a value path.
+- [ ] **The setup panel stays clear of a widening stage**: dock Setup to the right of the meter at a narrow saved width, then turn columns **on** one at a time — each
+  raise of the minimum pushes the stage's right edge out, and the panel must follow rather than being covered or overlapping. Turn them back off: the panel does not chase
+  a narrowing stage. Repeat with the panel docked left (the stage grows away from it and it must not move) and after dragging the panel somewhere of your own choosing.
+  Repeat initial opening and width increases on secondary monitors **right and left** of the primary, including different DPI scales: Setup must stay on the chosen
+  monitor, never jump back to the primary, and keep its gap until its own work-area edge requires clamping. Drag the pair between those monitors and resize again. Drag the stage down toward the taskbar and back: Setup keeps its bottom edge on
+  the monitor the pair is on rather than trailing off screen, and it moves again when the stage comes back up (a clamp that parked it
+  would read as a stuck panel). Drag horizontally without resizing toward each screen edge and back, with the panel on either side:
+  its left/right edges must clamp to the stage monitor's work area and release on reversal. Repeat with negative desktop coordinates
+  and mixed DPI; width-only narrowing and growth away from a left-docked panel must still leave it stationary.
+  Where a work area is too narrow for stage plus panel on **both** sides (a small secondary monitor with a wide meter), the panel pins to that work area's LEFT edge and
+  overlaps the stage — reachable beats tidy, and it must never come out off screen. With a debugger, force rectangle-read, work-area-read
+  and native-move failures separately: configure stays usable, the failed attempt leaves the panel stationary, and subsequent successful
+  moves recover **without a leftover offset** — a refused move does not spend the stage delta, so the next gesture brings the panel all the way
+  back to its gap rather than stopping short by the distance that was refused. Repeated failures in one episode produce one WARN in `eqlogparser.log`; after recovery, a new failure may warn again.
+  A failed work-area read must never fall through to an unchecked move.
+- [ ] **A narrow window still widens, and nothing shrinks**: with only `Sec` left the floor is small (141 DIP at 12 pt), so start from a saved `OverlayWidth` of ~150
+  and turn columns **on** — the window grows to the new floor and names stay left of the numbers. Then widen by hand and hide a column: the window must keep the width it has.
+  Save persists the width the gesture ended on; Cancel leaves both the saved mask and the saved geometry untouched. The live header may widen a saved stage further
+  to accommodate its toolbar; Setup has no toolbar and retains the row-only floor.
+- [ ] **The live toolbar never covers the remaining header**: in Setup turn every column off, resize to the minimum, Save, and reopen live. `Sec` must sit to the
+  right of Setup/Copy/Reset/Close/DPS/Tank, not underneath them, and the toolbar must not extend past the meter. Repeat with each single column, then all columns,
+  fonts 10/12/14/16 and mixed-DPI monitor moves. A wider measured toolbar raises the horizontal floor only: no extra row-height reserve or lost footer space.
+- [ ] **A long name still clears the numbers at the lowered floor**: hiding columns lowers what you can drag the window to (141 DIP at 12 pt with
+  only `Sec` left), so at that narrowest width check the longest name you can produce (masked hidden-player rows, the `[DoT +n]` crit-rate suffix) —
+  names are not ellipsised, and nothing may sit *under* the remaining digits. If it collides, the fix is the name allowance, not a new switch.
+- [ ] **Tank reads the same words**: switch DPS → Tank with any subset of columns hidden. Headers stay `Damage / DPS / RDPS / Sec` (operator decision: tanking DPS is DPS
+  done to you, it did not earn new terms), and hiding a column hides it in both panels at once — the two pools share one layout.
+- [ ] **Nothing but pixels moved**: during one fight, toggle every column on and off. Totals, DPS, RDPS, `Sec`, ranking, bar lengths, percentages, the copied parse, the
+  selected life and the meter's quiet deadline must all be unmoved; the meter must not rebuild its rows, jump vertically, or re-derive anything. Hiding every hideable column
+  still leaves a working meter (names, bars, seconds) — it is not "no data", and it must not close or blank itself.
+- [ ] **Picker honesty**: the combo's closed face counts what is on; opening it changes nothing until it closes, and one close previews one layout. Each row's tooltip
+  explains its rate (encounter vs the latest six logged seconds) and no row's wording contradicts the header word it sits beside. Cancel from Setup restores
+  both the previous column set and the previous window size; Save keeps them and reopens live.
+- [ ] **A hostile `settings.txt` is answered the same way twice**: with the app closed, write `OverlayEnableCritRate = 7`, `OverlayFontSize = 13`, `OverlayMaxRows = 22`,
+  `OverlayDamageMode = 4000`, `OverlayMeterPanels = 0`, `OverlayRankColor = chartreuse-ish`, `OverlayHighlightColor` absent; start, open the meter, then open Setup. Every field in Setup must show
+  exactly what the live meter is drawing (crit off, 12 pt, 5 rows, on-kill reset, **both panels**, the default bar colour, highlight following the bar colour) — one reader
+  (`DamageMeterConfigState.Load()`) answers for both surfaces, and the constructor used to keep its own copy of these guards with one clamp missing, which is the state this
+  gate reproduces. Then Save without touching anything: the file must come back holding those settled values, not the junk.
+- [ ] **The panel choice decides what may wake the meter**: with a log open and combat arriving on both sides (someone taking hits AND
+  someone dealing them), set Setup → meter panels to **Damage only**, then have a stretch where only you get hit and nobody in the raid
+  deals damage: after saving and the last outgoing receipt's quiet deadline, the window must neither open nor stay up for incoming alone.
+  Save **Tanking only** and repeat with pure outgoing damage — same answer. With one panel the toolbar shows that tab alone with no trailing divider
+  and does not resize oddly; the Setup stage previews its sample rows under whichever panel is chosen (Tanking only must not preview an
+  empty board) and hugs them to the same height as the damage panel does. In Setup, select Damage only, change the row count, then
+  switch to Tanking only: the rebuilt tanking bars must still contain sample names and numbers. Cancel from Setup preserves the previously saved panels.
+  Setup is a sample preview, not a live activity test. See DesignNotes → "Which panels the meter shows decides what may wake it and what is worth displaying".
+- [ ] **Hiding a panel loses no numbers**: on Damage only, take a hit and check the Tanking Summary board still records it; on Tanking only,
+  deal damage and check Damage Summary is unchanged. Switch back to Both mid-fight, before any reset or timed accumulation expires — the
+  returning tab must show the current accumulation without warm-up, and Copy Parse must copy the selected tab. Narrowing selects the surviving
+  panel in preview; widening back to Both must NOT move off it. Save remembers that selection (`OverlayShowingDps`). Panel changes do not
+  resurrect an accumulation already retired by Reset or a timed expiry.
+- [ ] **Panel preview cannot spend Cancel**: start on DPS with Both saved. Preview Tanking only, then Cancel. The next live meter must still
+  have Both and select DPS. Repeat in the opposite direction. Then preview the same narrowing and Save: the next meter must have only the
+  surviving panel selected. Widen to Both and Save; it stays on that tab rather than restoring the formerly hidden one.
+- [ ] **Unrelated previews preserve manual height**: resize the Setup stage by hand, then change bar colour, class filter, crit display and
+  hide-other-players without changing panels. Its height must stay put, including after the dispatcher has settled; Save must preserve the
+  chosen row-space budget on reopening. Changing panels, font size, thin bars or row count may refit the content; another unrelated preview
+  must not refit again.
+- [ ] **The tabs never move; only the window comes and goes**: with panels on **Both**, sit on **Tanking** through a stretch where the raid
+  deals damage and nobody of ours gets hit. Both tabs must stay visible, Tanking must stay drawn and stay highlighted, `OverlayShowingDps`
+  unchanged (reopen afterwards and your pick is still the one that comes up) — the meter must never turn the board over because the other half
+  got busy. Then **Damage**-only activity with **Damage** selected and nobody hit: same, mirrored. When *neither* enabled half's board lists
+  anyone the window goes away rather than showing an empty frame — including a one-panel meter whose single half is empty however busy the other
+  lane is. **A class filter must never be what closes it**: with combat running, filter the meter to a class that has done nothing (or to one
+  that is only tanking) and the meter must stay up with its empty board and both tabs intact until you clear the lens; it went away for a moment
+  in earlier builds and read as a broken overlay. An explicit Reset mid-fight must still keep the meter polling rather than closing on its own
+  zeroed board.
+- [ ] **The busy tab nudges, quietly**: with Both enabled, start fresh on an empty Tanking tab while the raid is dealing damage. The **Damage**
+  tab should pulse immediately, including when the toolbar is first created: **1 s green, 4.5 s normal** (5.5 s between pulse starts;
+  `AttentionHoldMs` / `AttentionWaitMs`). Dispatcher work can delay a phase; it must not become a fast blink or standing highlight.
+  During green, click the already-selected empty Tanking tab: the Damage pulse must survive without restarting the timer. Click Damage instead:
+  the nudge must clear immediately. Mirror this with Damage empty and Tanking populated. Hiding the meter clears it immediately; the visible half
+  gaining rows clears it on the next board answer (normally the one-second refresh plus build time, longer if deferred). Damage-only / Tanking-only
+  must never nudge anything. Under a class filter it follows what you would SEE — a lane busy only for other classes must not light up.
+  If the theme's `EQGoodForegroundBrush` reads too dim against the meter background, report it rather than adding a meter-only colour.
+- [ ] **Settings autosave without a power resume or normal exit**: start a fresh process, change a meter setting in Setup and Save, then wait
+  at least 35 s with the dispatcher responsive. Check the changed value in `%AppData%\\EQLogParser\\config\\settings.txt`, terminate the process
+  from Task Manager (no normal shutdown save), and relaunch. The change must survive. Do not suspend/resume or use another explicit settings
+  flush during the wait: this checks the main window's 30-second timer, not those other save paths.
+- [ ] **A self-opening meter never shows an empty frame**: with the meter enabled and a log closed, load a log whose combat is over (or walk
+  away until the meter has closed itself, then pull). The overlay must appear only when one of its enabled halves has a row — no blank box,
+  however brief —
+  and if the first answer is empty it must stay out of the way (not ghost-visible, not stealing clicks) and appear on its own the next time
+  something worth listing happens. Enabling it from the menu without recent enabled-lane activity leaves it closed until combat arrives;
+  Setup still opens its sample stage without combat. An eligible direct menu opening may appear before its first board. A class filter
+  that hides all rows does not prevent reveal when the enabled, unfiltered board has entries.
+- [ ] **The bar colour really comes out of the application dictionary**: change bar colour and highlight in Setup and press Save, then switch the app theme (light ↔ dark)
+  with a meter open. Rows must repaint through `DamageOverlayProgressBrush` / `DamageOverlayHighlightBrush` — including *your own* row keeping the highlight key — and Cancel
+  must leave the reopened meter on the saved colours, not the previewed ones, because the reopened constructor republishes all five meter keys from disk. A row that keeps an old
+  colour after a theme switch means something grabbed a `Brush` instead of following its key (see DesignNotes → "Style state lives in the application resource dictionary").
 
 ## Tanking Summary pet rows
 
@@ -352,6 +566,38 @@ identical to a test. Both halves below are the same seam seen two ways.
   indicator may return. Select fights in the new log while the old work is winding down: a late old empty result must not
   erase the new board, and old healing completions must not change its tanking annotations. Also close without opening
   another log. Run `SummaryPublicationTest` on Windows for the queued-callback regression.
+
+## Busy seconds on the three summaries, checked on Windows
+
+**Busy** (beside **Sec** on Damage, Healing and Tanking Summary) is a mark-based activity measurement; its arithmetic and builder
+seams are pinned headlessly by `BusyTimePolicyTest` and `BusyTimeTest`. What follows is the grid half, which no Linux run can see.
+The contract lives in `docs/DesignNotes.md` → "Busy seconds: activity is measured from marks, never from a stored span".
+
+- [ ] **Whole seconds beside Sec:** all three summaries show Busy as an integer column next to Sec. Expanded owner/pet rows are
+      strict (owner-only, pet-only) and the `X +Pets` row reflects both; rows whose role is not an entity (synthetic Group View
+      headers, spell/detail breakdown rows) read 0 because nothing was ever stamped for them. Switch summary view modes — no
+      ownership is recomputed and no number moves.
+- [ ] **Both grid types treat it as a number** (SfTreeGrid on Damage, SfDataGrid on Healing and Tanking): the first header click
+      sorts largest first with the 0-valued non-entity rows at the bottom, and the column picker, Copy CSV/image and hiding Busy
+      behave exactly as they do for Sec.
+- [ ] **Tooltips:** all three summaries show Sec as *Recorded combat duration, including pauses. Used to calculate DPS or HPS*
+      and Busy as *Estimated active time within Sec, excluding pauses over 10 seconds. Does not affect DPS or HPS*.
+      Both fit and stay readable at the supported fonts/themes, and Busy's threshold matches `BusyTimePolicy.GapSeconds`.
+- [ ] **Saved layouts:** a fresh profile shows Busy beside Sec; hide it before ever dragging a column, restart, and verify it stays
+      hidden. With an older saved layout (including order-only, visibility-only and header-name preferences), Busy appears once beside
+      Sec without losing any other column's order or visibility; then hide it, reorder it, restart and verify those choices persist on
+      each of the three summaries. Nobody's columns may be reset, and Busy must not force itself back on. Run
+      `BusyColumnPreferencesTest` on Windows for the loader regression checks in both grid types.
+- [ ] **The answer follows the question:** filter the time window and damage type, widen again, change the selected fights, reopen
+      the capture. Values track the new question with no stale seconds left behind. Clear All keeps its existing re-open behaviour
+      and carries no previous Busy state into the new board.
+- [ ] **Busy never reads larger than Sec** on any row of the three summaries — it removes idle seconds from the range Sec counts and adds
+      none. Where they must agree: two selected pulls 7-10 seconds apart (nothing covers the pause, so neither column claims it) and a row that
+      worked the whole selection. Where they must differ: an interior stretch with no activity for this row, which is the point of the column.
+- [ ] **A real raid reads sensibly:** on a substantial fight group, walk away mid-fight and watch this row's Busy drop while a normal
+      slow-casting rotation is not routinely marked idle. Outgoing ticks and pet activity can legitimately keep their credited rows
+      high; per-class cadence was never measured headlessly (no class host hook), so this is the check that says whether ten seconds
+      is the right slack.
 
 ## Identity Table paging checks on Windows
 
@@ -417,6 +663,28 @@ Two behaviours depend on state a headless test cannot build; both have shipped b
   decide the shape of a document). `eqlogparser.log` prints `dock: <window> shown as Document` for every menu-opened window; toolbar
   windows have no line (different door, `SyncFusionUtil.OpenWindow`). If one still opens wrong, record WHICH window and whether
   **Reset Window State** (drops `dockSite.xml`) changes it — that separates the code path from a saved layout.
+
+## Line-chart calculation checks on Windows
+
+- [ ] Run `LineChartSelectionTest`: opening DPS Trends with group rows selected must immediately show their group lines,
+  and a subsequent UPDATE must keep them rather than showing No Data. Also exercise this through the actual summary pane.
+- [ ] On a short known fight, compare player-only, player-plus-pets, raid and group charts: the first occupied second has
+  nonzero aggregate DPS, missed attacks do not dilute average hit/crit rate, and a single-member group agrees with its player.
+- [ ] **Rolling troughs:** two six-million bursts ten log seconds apart must show one million RDPS at each burst and zero
+  from the first burst's second +6 through +9. Check a shorter gap with a genuinely nonzero low too: it must not be forced
+  to zero. Verify Damage, Tanking and Healing, player-plus-pets, group and raid views, and rolling amount as well as rate.
+- [ ] **Startup and quiet tails:** the first 600-point bucket answers 100 rolling DPS/HPS, not 600. When another player
+  continues, a stopped player's line reaches zero at its last amount's second +6. When everyone stops, the plotted range
+  stops at the last captured second; waiting or changing the PC clock must not extend it.
+- [ ] **Mode switches and CSV:** run `LineChartSelectionTest` on Windows. Switching between rolling and aggregate modes
+  must preserve original aggregate totals and buckets. Rolling CSV includes the quiet transition points shown on the chart.
+  Across a gap over 30 seconds, instantaneous lines retain their existing zero markers and aggregate damage never drops to zero.
+- [ ] **Out-of-order recovery:** exercise a chart UPDATE with bucket timestamps 100, 104, 102, 105. Group/player plots and CSV must
+  ascend, preserve every amount and expire the second-102 contribution at 108. Previously drawn point objects must remain unchanged;
+  a late hit that bridges a long gap must cause cumulative rates and synthetic gap markers to be rebuilt together.
+- [ ] **Rendering cost:** zoom in on quiet transitions and check responsiveness on a long multi-fight selection. Rolling
+  modes add transition/endpoints, not every empty second; aggregate/instantaneous point counts are unchanged. Linux tests
+  cannot verify Syncfusion rendering performance.
 
 ## Chat archive range checks on Windows
 
@@ -533,8 +801,8 @@ Excel can answer is whether it opens and behaves. No new dll ships with this fea
   own name and groups pet damage under its owner; damage Class follows that player. Check a charm before/during/after its
   window. A charmed player moves to NPC DPS only during the charm; a charmed NPC moves in the opposite direction.
   A mercenary reads Mercenary in Players, opens no fight-list row, and still has its damage rows.
-- [ ] **The clock reads the way GamParse's does.** The pull's own second is `1`, one second early is `-1` — their scale has
-  no zero, and their readers union our files with years of saved GamParse ones. Log Time is the wall clock to the second.
+- [ ] **Relative time matches the captured event.** The pull's own second is `1`, one second early is `-1`, and five seconds
+  early is `-5`; the scale has no zero. Log Time is the timestamp from the log, not the PC clock at export time.
   Event Info states the window, the totals and which rule the heal sheets used.
 - [ ] **The Players tab reflects this event's personas.** Capture-time class wins over saved/latest class, with the saved
   class as fallback when this log has no evidence. A multi-persona selection keeps separate class rows with first/last seen

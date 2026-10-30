@@ -90,6 +90,9 @@ namespace EQLogParser
      */
     private readonly HealFactTable _heals;
     private readonly CombatCapture _capture;
+    private readonly MeterArrivals _meterArrivals = new();
+
+    internal int MeterCapturedCount => _facts.FactCount;
 
     // The snapshot currently on screen (see DerivedSnapshot.Facts): a selection is materialized against
     // the pass that produced the rows, so it has to be reachable from the UI without re-deriving.
@@ -233,7 +236,7 @@ namespace EQLogParser
 
       _facts = new DamageFactTable(captureBytes > 0 ? FactCapacity.DamageForBytes(captureBytes) : UnhintedDamageSlots);
       _heals = new HealFactTable(_facts, FactCapacity.HealForBytes(captureBytes));
-      _capture = new CombatCapture(_facts, _heals);
+      _capture = new CombatCapture(_facts, _heals, damageArrived: MeterDamageArrived);
       ChatSink = new IdentityChatSink(_capture);
       _liveKindAt = LiveKindAt;
       _liveOwner = LiveOwnerOf;
@@ -276,10 +279,10 @@ namespace EQLogParser
      * IdentityLookup's view of the carried verdicts. Unknown means "this log never said", which is the seam's cue to ask
      * memory rather than an answer about the name; PositiveInfinity means "as far as we know".
      *
-     * The lock is the whole point of this method's shape (docs/DesignNotes.md → "The one seam that answers"): the carried
-     * timeline is mutated by passes on a task thread while this answers menu enables on the UI thread, and a Dictionary read
-     * racing an insert can throw or answer "nobody here" for a name that is in the table. Keeping the hop inside a lock (and
-     * returning a plain IdentityKind) also means no live collection ever escapes to the caller.
+     * The lock is kept as cheap insurance, not as the load-bearing part of the design (docs/DesignNotes.md → "A published timeline is
+     * frozen"): the carried instance was published by replacement and frozen by Classify, so this UI-thread read has no writer to race,
+     * locked or not. What still matters here is the SHAPE — hop inside one lock and hand back a plain IdentityKind, so no live
+     * collection escapes to a menu handler that might walk it after the pass moves on.
      */
     private IdentityKind LiveKindAt(string? name, double t)
     {
@@ -292,8 +295,8 @@ namespace EQLogParser
     /*
      * "Whose pet, according to this capture?" — the charm window's owner (docs/DesignNotes.md -> "A charm takes a mob off
      * the enemy list"), which lives nowhere else: no file records that tonight's `a bone walker` belonged to Kylo. Same
-     * locking law as LiveKindAt above, for the same reason: this answers UI-thread questions while a pass mutates the
-     * table on a task thread, and nothing may escape the lock but a string.
+     * locking law as LiveKindAt above: this answers UI-thread questions, and nothing may escape the lock but a string. The frozen
+     * carried timeline means there is no writer to race; the lock stays so the two hops have one shape and one rule.
      */
     private string? LiveOwnerOf(string? name)
     {
@@ -571,14 +574,21 @@ namespace EQLogParser
             catch (Exception ex) { Log.Debug("Could not trim ordinal-list slack; the derived boards are unaffected", ex); }
           }
 
-          // Wall-clock freshness also gates opening: historical snapshots must not repeatedly open an already expired board.
-          // A completed one-shot is recent activity too; being dead before the first derive must not make it invisible.
-          var now = DateUtil.ToDotNetSeconds(DateTime.Now);
-          var activityOrdinal = DamageOverlayLifecycle.LatestActivityOrdinal(snapshot.AllFights, now);
-          var freshDamage = ConfigUtil.IfSet("IsDamageOverlayEnabled")
-                            && activityOrdinal > _lastAnnouncedActivityOrdinal
-                            && DamageOverlayLifecycle.HasRecentActivity(snapshot.AllFights, now,
-                              ConfigUtil.GetSettingAsInteger("OverlayDamageMode"));
+          // Verify receipts only while the meter is enabled. Disabled captures retain unchecked metadata for later,
+          // but do not decode facts to answer an opening question nobody is asking. Deriving never restamps receipt.
+          var freshDamage = false;
+          var activityOrdinal = 0;
+          if (ConfigUtil.IfSet("IsDamageOverlayEnabled"))
+          {
+            // Asked with the displayed panels, because this announcement IS the auto-open path: an unwatched lane must not
+            // open a window. Receipts still record both lanes, so widening the choice later needs no rescan.
+            var panels = DamageMeterConfigState.LoadPanels();
+            var mode = DamageMeterConfigState.LoadResetMode();
+            var arrival = VerifyMeterArrival(snapshot.Timeline, mode, panels);
+            activityOrdinal = arrival.Through;
+            freshDamage = activityOrdinal > _lastAnnouncedActivityOrdinal
+                          && DamageOverlayLifecycle.HasRecentActivity(arrival, MeterArrivals.Now, mode);
+          }
 
           // Swapped before the event: a selection made from the fresh rows materializes against the pass
           // that made them, never against the previous snapshot's facts.
@@ -827,46 +837,83 @@ namespace EQLogParser
       return FightSummarySource.Build(overlapping, snapshot.DamageIndex, snapshot.Facts).Fights.ToList();
     }
 
-    internal bool HasOverlayActivity(int mode)
+    // Auto-open is optional: a receipt scan must not withhold the snapshot or enter the derive failure ladder.
+    internal MeterArrival VerifyMeterArrival(EntityTimeline timeline, int mode, MeterPanels panels)
+    {
+      try
+      {
+        return _meterArrivals.Latest(_facts, timeline, mode, panels);
+      }
+      catch (Exception ex)
+      {
+        try
+        {
+          if (RepeatCap.SpeaksOnce($"derive meter receipts {ex.GetType().FullName}"))
+          {
+            Log.Error("Could not verify damage meter receipts; auto-open skipped, derived boards are unaffected", ex);
+          }
+        }
+        catch (Exception reporting)
+        {
+          ThreadBoundary.TraceFailure("Could not report damage meter receipt failure", reporting);
+        }
+        return MeterArrival.None;
+      }
+    }
+
+    // The panels this window displays: activity on a lane it does not show answers None, which is what closes or keeps shut a
+    // meter whose only busy lane is the hidden one.
+    internal bool HasOverlayActivity(int mode, MeterPanels panels)
     {
       var snapshot = _snapshot;
-      return !_disposed && snapshot is not null && DamageOverlayLifecycle.HasRecentActivity(snapshot.AllFights,
-        DateUtil.ToDotNetSeconds(DateTime.Now), mode, snapshot.PendingActivity);
+      return !_disposed && snapshot is not null && DamageOverlayLifecycle.HasRecentActivity(
+        _meterArrivals.Observed(panels, mode), MeterArrivals.Now, mode);
     }
 
     // Select and materialize from ONE snapshot. The lifecycle retains only scalar reset state, never this capture's rows.
-    internal DamageOverlayStats BuildOverlayStats(DamageOverlayLifecycle lifecycle, DamageMeterCalculation calculation,
-      int mode, double now, CancellationToken cancellation, Action<double> publishExpiry = null)
+    internal MeterBuildResult BuildOverlayStats(DamageOverlayLifecycle lifecycle, DamageMeterCalculation calculation,
+      int mode, MeterPanels panels, double now, CancellationToken cancellation, Action<double> publishExpiry = null)
     {
-      while (!_disposed)
+      return MeterBuildRetry.Run(() =>
       {
-        cancellation.ThrowIfCancellationRequested();
+        if (_disposed) return MeterBuildResult.Completed();
         var snapshot = Volatile.Read(ref _meterSnapshot);
-        if (snapshot is null) return null;
+        if (snapshot is null) return MeterBuildResult.Completed();
         // The potentially large suffix scan is outside the ingest gate. Retry if a pass replaced its snapshot meanwhile.
         snapshot.PendingActivity.Update(snapshot.Facts, snapshot.Timeline, cancellation);
         var candidates = _capture.DeriveQuiescent(() =>
         {
           cancellation.ThrowIfCancellationRequested();
           if (_disposed || !ReferenceEquals(snapshot, Volatile.Read(ref _meterSnapshot))) return null;
-          var scope = lifecycle.SelectCandidates(SessionId, snapshot.AllFights, now, mode, snapshot.PendingActivity);
-          return snapshot.DamageIndex.CaptureMeterInput(scope.Rows, snapshot.Facts, scope.FromTime, now);
+          var scope = lifecycle.SelectCandidates(SessionId, snapshot.AllFights, mode);
+          return snapshot.DamageIndex.CaptureMeterInput(scope.Rows, snapshot.Facts, scope.FromTime,
+            double.PositiveInfinity, scope.FirstOrdinal);
         });
-        if (candidates is null) continue;
+        if (candidates is null) return MeterBuildResult.Deferred;
         calculation.Activity.Update(candidates, cancellation);
+        var receipts = _meterArrivals.BeginRead(snapshot.Timeline);
+        // The arrival a build selects on is the displayed panels' answer, so an unwatched lane can neither extend this window's
+        // quiet deadline nor rescue it from expiring.
+        var arrival = receipts.Complete(snapshot.Facts, mode, panels, cancellation);
         var input = _capture.DeriveQuiescent(() =>
         {
           cancellation.ThrowIfCancellationRequested();
           if (_disposed || !ReferenceEquals(snapshot, Volatile.Read(ref _meterSnapshot))) return null;
-          var scope = lifecycle.Select(SessionId, snapshot.AllFights, now, mode, snapshot.PendingActivity,
-            calculation.Activity.For);
+          // A newer eligible receipt must not renew old amounts before pending membership has seen its combat.
+          if (!receipts.InputsCurrent || !calculation.Activity.InputsCurrent
+            || !snapshot.PendingActivity.Covers(arrival.Through, snapshot.Timeline)) return null;
+          // An expiry may cut only the receipt prefix we checked; ingest may have appended fresh damage during the scan.
+          if (!lifecycle.TrySelect(SessionId, snapshot.AllFights, now, mode, arrival, receipts.Through, out var scope,
+            snapshot.PendingActivity, calculation.Activity.For, panels)) return null;
           // Publish before counting: a blocked build cannot hold its prior presentation past this deadline.
           publishExpiry?.Invoke(scope.ExpiresAt);
-          return snapshot.DamageIndex.CaptureMeterInput(scope.Rows, snapshot.Facts, scope.FromTime, now);
+          return snapshot.DamageIndex.CaptureMeterInput(scope.Rows, snapshot.Facts, scope.FromTime,
+            double.PositiveInfinity, scope.FirstOrdinal, scope.WindowSecond);
         });
-        if (input is not null) return calculation.Update(input, cancellation);
-      }
-      return null;
+        if (input is null) return MeterBuildResult.Deferred;
+        var stats = calculation.Update(input, cancellation);
+        return receipts.InputsCurrent ? MeterBuildResult.Completed(stats) : MeterBuildResult.Deferred;
+      }, cancellation);
     }
 
     internal StatsGenerationEvent? BuildScopeStats(IReadOnlyList<DerivedFight> rows)
@@ -900,6 +947,9 @@ namespace EQLogParser
      * A log without combat damage (login/city logs) still derives — an empty fight list is an honest answer,
      * "capturing forever" is not.
      */
+    private void MeterDamageArrived(int through, double sourceTime) =>
+      _meterArrivals.Record(through, MeterArrivals.Now, sourceTime, DateUtil.ToDotNetSeconds(DateTime.Now));
+
     private long CapturedTotal =>
       _facts.FactCount + _heals.HealCount + _facts.DeathCount + _facts.TauntCount
       + _facts.IdentityEventCount + _facts.EvidenceCount;
@@ -1023,6 +1073,13 @@ namespace EQLogParser
        */
       IdentityOverrideStore.Instance.Apply(timeline);
 
+      /*
+       * Publish by replacement, and publish FROZEN: from the next line this instance is reachable by the UI thread (menu enables),
+       * the census, the boards and the meter's suffix scans, none of which take a read lock. Cheap passes run no rule book at all, so
+       * nothing would ever write it — freezing makes that an executable check instead of a habit, so a future in-place fold fails here
+       * with a stack instead of racing a reader (docs/DesignNotes.md → "A published timeline is frozen").
+       */
+      timeline.Freeze();
       return timeline;
     }
 

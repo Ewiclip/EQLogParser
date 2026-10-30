@@ -417,54 +417,105 @@ namespace EQLogParser
       main.Top = primary.Top + ((primary.Height - main.Height) / 2);
     }
 
+    // Mark recoverable exceptions handled before reporting. Even the Trace fallback must not escape these last-resort handlers.
+    // docs/DesignNotes.md → "Nothing escapes a thread that has no net, and a fault speaks once".
     private void DomainUnhandledException(object sender, UnhandledExceptionEventArgs ex)
     {
-      if (ex.ExceptionObject is Exception exception)
+      // Nothing here can stop the termination — that is what IsTerminating means — so the whole job is saying something before the process goes,
+      // on whatever thread faulted. Touching the splash from a non-UI thread throws, hence its own arm.
+      try
       {
-        Log.Error($"DomainUnhandledException: {exception.Message}");
-        LogDetails(exception);
+        if (ex.ExceptionObject is Exception exception)
+        {
+          Log.Error($"DomainUnhandledException: {exception.Message}");
+          LogDetails(exception);
+        }
       }
-      _splash?.SetErrorState();
+      catch (Exception reporting)
+      {
+        ThreadBoundary.TraceFailure("Could not write the terminating exception to the log", reporting);
+      }
+
+      try
+      {
+        _splash?.SetErrorState();
+      }
+      catch (Exception splash)
+      {
+        ThreadBoundary.TraceFailure("Could not mark the splash window failed", splash);
+      }
     }
 
     private void AppDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs ex)
     {
-      Log.Error($"AppDispatcherUnhandledException: {ex.Exception.Message}");
-      LogDetails(ex.Exception);
-      // Prevents application from closing
+      // First, because it is the line that keeps the window open: if reporting this exception goes wrong, the application still survives it.
+      // Prevents application from closing.
       ex.Handled = true;
-      _splash?.SetErrorState();
+
+      try
+      {
+        Log.Error($"AppDispatcherUnhandledException: {ex.Exception.Message}");
+        LogDetails(ex.Exception);
+      }
+      catch (Exception reporting)
+      {
+        ThreadBoundary.TraceFailure("Could not write the dispatcher exception to the log", reporting);
+      }
+
+      try
+      {
+        _splash?.SetErrorState();
+      }
+      catch (Exception splash)
+      {
+        ThreadBoundary.TraceFailure("Could not mark the splash window failed", splash);
+      }
     }
 
     private void TaskSchedulerUnobservedTaskException(object sender, UnobservedTaskExceptionEventArgs ex)
     {
-      if (ex.Exception.InnerException is Exception { } inner)
+      // Observed before anything is printed: that marking is what stops the runtime escalating this later, and a logging fault must not cost it.
+      ex.SetObserved();
+
+      try
       {
-        if (inner.StackTrace?.Contains("EditControl") == true && inner.Message?.StartsWith("Index", StringComparison.OrdinalIgnoreCase) == true)
+        if (ex.Exception.InnerException is Exception { } inner
+          && inner.StackTrace?.Contains("EditControl") == true
+          && inner.Message?.StartsWith("Index", StringComparison.OrdinalIgnoreCase) == true)
         {
-          // Ignore EditControl index out of range exceptions
-          // May be fixed in Syncfusion updates
+          // Ignore the known EditControl index failure after marking the task observed.
           return;
         }
+
+        Log.Error($"TaskSchedulerUnobservedTaskException: {ex.Exception.Message}");
+        LogDetails(ex.Exception);
+      }
+      catch (Exception reporting)
+      {
+        ThreadBoundary.TraceFailure("Could not write the unobserved task exception to the log", reporting);
       }
 
-      Log.Error($"TaskSchedulerUnobservedTaskException: {ex.Exception.Message}");
-      LogDetails(ex.Exception);
-      ex.SetObserved();
-      _splash?.SetErrorState();
+      try
+      {
+        _splash?.SetErrorState();
+      }
+      catch (Exception splash)
+      {
+        ThreadBoundary.TraceFailure("Could not mark the splash window failed", splash);
+      }
     }
 
     private static void LogDetails(Exception ex)
     {
       Log.Error($"Thread ID: {Environment.CurrentManagedThreadId}");
       Log.Error($"Thread Name: {System.Threading.Thread.CurrentThread.Name}");
-      Log.Error(ex.StackTrace);
+      Log.Error(ex.StackTrace ?? "<no stack captured>");
 
       var inner = ex.InnerException;
       while (inner != null)
       {
         Log.Error($"Inner Exception: {inner.Message}");
-        Log.Error(inner.StackTrace);
+        Log.Error(inner.StackTrace ?? "<no stack captured>");
         inner = inner.InnerException;
       }
     }

@@ -4,9 +4,28 @@ using System.Threading;
 
 namespace EQLogParser;
 
-internal readonly record struct MeterLifeActivity(bool HasDamage, double Last)
+internal readonly record struct MeterLifeActivity(bool HasDamage, double Last, int LastSequence = -1)
 {
   internal static readonly MeterLifeActivity None = new(false, double.NegativeInfinity);
+}
+
+/*
+ * Which panel an act of combat belongs to — and, because one word should answer both questions, which panels the operator
+ * switched on. A fact EARNS a panel: outgoing damage the exclusions allow earns Damage; a hit landing on our side (player,
+ * pet or mercenary) earns Tanking. What a meter may act on is what was earned INTERSECTED with what is displayed, which is the
+ * whole law behind "a lane you do not watch cannot wake my overlay": the same receipt answers both readings, so changing the
+ * choice costs no rescan and widening it shows history at once.
+ *
+ * The values are what settings.txt stores for `OverlayMeterPanels`, so `None` is never a legal choice — an absent or unreadable
+ * key reads Both, and a meter can never be configured into having no tabs.
+ */
+[Flags]
+internal enum MeterPanels : byte
+{
+  None = 0,
+  Damage = 1,
+  Tanking = 2,
+  Both = Damage | Tanking,
 }
 
 // Worker-owned scalar prefixes. The index routes incoming/outgoing; only outgoing obeys damage exclusions.
@@ -26,6 +45,9 @@ internal sealed class MeterActivityIndex
   private double _from = double.NaN;
   private double _future = double.PositiveInfinity;
   private double _to = double.NegativeInfinity;
+  private int _firstOrdinal;
+
+  internal bool InputsCurrent => _index is not null && _filter == MeterDamageFilter.Current;
 
   internal MeterLifeActivity For(DerivedFight row) =>
     _lives.TryGetValue(row, out var life) ? life.Activity : MeterLifeActivity.None;
@@ -42,12 +64,14 @@ internal sealed class MeterActivityIndex
   internal void Update(MeterFactInput input, CancellationToken cancellation = default)
   {
     var filter = MeterDamageFilter.Current;
-    if (input.From != _from || filter != _filter || input.To >= _future || input.To < _to) Clear();
+    if (input.FirstOrdinal != _firstOrdinal || input.From != _from || filter != _filter
+      || double.IsFinite(_future) && input.To >= _future || input.To < _to) Clear();
     if (_index is not null && !ReferenceEquals(input.Index, _index)) Rebind(input, cancellation);
     _index = input.Index;
     _filter = filter;
     _from = input.From;
     _to = input.To;
+    _firstOrdinal = input.FirstOrdinal;
     var selected = new HashSet<DerivedFight>();
     foreach (var header in input.Lives)
     {
@@ -62,16 +86,24 @@ internal sealed class MeterActivityIndex
       if (!selected.Contains(row)) _lives.Remove(row);
   }
 
-  // A pending row has no routing index yet. Match combat admission and preserve incoming damage exclusions' exemption.
-  internal static bool AcceptsPending(DamageFact fact, EntityTimeline timeline, string attacker, string defender,
+  // Pending rows have no routing index yet. Share projection's admission, anchor and target decisions:
+  // incoming earns Tanking without outgoing exclusions; permitted output earns Damage; Neither earns nothing.
+  internal static MeterPanels AcceptsPending(DamageFact fact, EntityTimeline timeline, string attacker, string defender,
     MeterDamageFilter filter)
   {
     if (!FightProjection.TryCombatSides(fact, timeline, attacker, defender, out var atkSide, out var defSide))
-      return false;
-    var incoming = timeline.IsConfirmedRaidPersonAt(defender, fact.TimeS)
-      || (defSide == FightProjection.Side.Player && atkSide != FightProjection.Side.Player)
-      || (defSide == FightProjection.Side.Unknown && atkSide == FightProjection.Side.Npc);
-    return incoming || filter.Allows(fact);
+      return MeterPanels.None;
+
+    var anchor = FightProjection.CombatAnchor(timeline, attacker, defender, fact.TimeS, atkSide, defSide,
+      fact.AttackerIsSpell);
+    var aimedAtAnchor = FightProjection.AimedAtCombatAnchor(anchor, defender, defSide, fact.AttackerIsSpell);
+    var target = FightProjection.CombatTarget(timeline, defender, fact.TimeS, defSide, aimedAtAnchor);
+    return target switch
+    {
+      FightProjection.FactTarget.RaidSide => MeterPanels.Tanking,
+      FightProjection.FactTarget.AtOwner when filter.Allows(fact) => MeterPanels.Damage,
+      _ => MeterPanels.None
+    };
   }
 
   private void Rebind(MeterFactInput input, CancellationToken cancellation)
@@ -105,6 +137,7 @@ internal sealed class MeterActivityIndex
       var ordinals = input.Index.ReadMeterOrdinals(header.Source, incoming, through, end);
       foreach (var ordinal in ordinals)
       {
+        if (ordinal < input.FirstOrdinal) continue;
         var fact = input.Facts.At(ordinal);
         if (fact.TimeS < input.From) continue;
         if (fact.TimeS > input.To)
@@ -114,7 +147,7 @@ internal sealed class MeterActivityIndex
         }
         if (!incoming && !_filter.Allows(fact)) continue;
         life.Activity = new MeterLifeActivity(life.Activity.HasDamage || fact.Total > 0,
-          Math.Max(life.Activity.Last, fact.TimeS));
+          Math.Max(life.Activity.Last, fact.TimeS), Math.Max(life.Activity.LastSequence, fact.Seq));
       }
       through += ordinals.Length;
     }

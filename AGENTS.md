@@ -12,6 +12,9 @@ You are an expert AI assistant maintaining this C#/WPF/.NET 10 project.
 - **A comment may not cite what a fresh clone cannot read**: no non-whitelisted `docs/<note>.md`, and no type or UI verb
   that no longer exists. If a name in a comment has zero declarations (`rg -c '\bTypeName\b'`) the comment is fiction.
 - **Numbers and history live in `docs/DesignNotes.md`**, not here: this file states the law and the anchor, and points.
+- **A DesignNotes section is the law plus what must not break**, readable in a minute by someone about to change that area — detail only
+  where the subject is genuinely easy to break. No dates on headings or as labels (git answers "when"), no per-commit validation tallies
+  ("2,641 tests pass" is stale the next commit — name what is pinned and by which test), and one section per decision, not one per session.
 - **No heavy dependencies** without explicit user approval.
 
 ## Build (Linux, this machine)
@@ -46,7 +49,7 @@ You are an expert AI assistant maintaining this C#/WPF/.NET 10 project.
   `IdentityAt` answers from saved memory alone — it read Player 534 / Npc 0 / Merc 0 on a capture whose real census is Player 737 /
   Npc 644 / Merc 16. Any verdict question calls `ClassificationRules.Apply(run.Facts, run.Timeline, run.HealFacts)` over that seed
   first (`DamageBoardGoldenTest` does). Numbers and the story: docs/DesignNotes.md → "Being healed by a group spell: measured
-  as identity evidence for the HEALED name (2026-11)".
+  as identity evidence for the HEALED name".
 - **`PipelineHarness` clears the stores** (`PlayerRegistry`, `RecordsStore`, `DamageLineParser.ResetProcessState`), so
   re-parsing a fixture in one process cannot double counts, and `RegistrySeed` contributes nothing — tests that need seed
   memory must build it themselves; tests that need healers as healers must give them an evidence line (`EvJoinedRaid`), not
@@ -178,8 +181,9 @@ You are an expert AI assistant maintaining this C#/WPF/.NET 10 project.
 - **Only a gesture stamps the re-derive ledger** (`DeriveRequests`); the pump dispatches through `StartPass`, which stamps
   nothing, and paying a debt may not take one out.
 - **Two clocks**: `Full` is paced by `_sinceFullPass`, the cheap lane by `_sinceAnyPass`; only a pass that classified may
-  restart the full clock, write the ledger, or emit an Info line. The cheap lane folds over the `EntityTimeline` INSTANCE the
-  last full pass produced, so `StateStamp()` stays put and the stamp gate keeps folding from its watermark.
+  restart the full clock, write the ledger, or emit an Info line. The cheap lane runs no rule book: it projects over the
+  `EntityTimeline` INSTANCE the last full pass published — frozen and never mutated (docs/DesignNotes.md → "A published timeline is
+  frozen") — so `StateStamp()` stays put and the stamp gate keeps folding from its watermark.
 - **A pass continues where the last stopped** (`FightProjectionCache`: rows, open/closed per name, death queues, and the
   `FightFactIndex` travelling with them). A carry needs `ProjectionState.Covers(facts)` **and** a matching
   `EntityTimeline.StateStamp()`; a moved verdict buys a full rebuild. The digest is incremental (added, commutative; never
@@ -214,8 +218,10 @@ You are an expert AI assistant maintaining this C#/WPF/.NET 10 project.
   Leap/Warcry). R5 ownership sweeps the name pool (a comma in an owner text claims the pet, not a raid member);
   `X is called to it owner.` names the **summoner** (`R5-companion` → Player), never the summon; R6-npcdb ⇒ NPC — Medium for a
   spaced name, `Listed` (20) for a bare word, which beats remembered and seeded grades but never a line this capture printed;
-  R14 article ⇒ NPC at Medium; R15 needs ≥10 heals from ≥2 Strong casters and any swing back vetoes; R17 drink/eat names a player; R21 spell shapes
-  (`… by .`, seen being cast, known spell name) type as **Spell** with no pencil; R24-petslot: `Target = Pet/Pet2` in the
+  R14 article ⇒ NPC at Medium; R15 needs ≥10 heals from ≥2 Strong casters and any swing back vetoes; R17 drink/eat names a player; R21 types **Spell** only from a parser-recorded effect slot
+  (`… from X by .`, `… damage by X.`, `You have taken … from X.`) at `SpellShape` (25, below Medium), with no pencil — a spells.txt
+  name or another caster's spell operand claims NOTHING, and a name also seen attacking, defending, healing or being healed is a
+  combatant, not an effect; R24-petslot: `Target = Pet/Pet2` in the
   spell data makes the *defender* a Pet (ask `GetSpellByName`; damage lines only; never invents an owner); R25-roster and
   R26-savedpet claim Unknown-only names in their own folder's pool, last, at Strong; **R27-mercdb** (`mercs.txt`, the bot
   table) claims its names **Merc at `MercDatabaseStrength`**, above `TargetedNpcStrength` but below positive player proof,
@@ -310,6 +316,10 @@ You are an expert AI assistant maintaining this C#/WPF/.NET 10 project.
   (`NamesTable.DesiredPaneWidth()`), fed by `ThemeConfig`.
 - **No window may keep its own copy of identity state**, and **no window holds a `DeriveEngine` past its session** — tag state
   with `DeriveEngine.SessionId`; a `Dispose`d engine keeps every fact table of the closed log.
+- **Style state goes in `Application.Current.Resources`**, never a window's own `.Resources`: a reader holds a key, a
+  publisher overwrites it, a theme change repaints everybody. Key names belong to the writing pane (`DamageOverlay…`, `EQ…`, runtime-built `TimerBar…`/`TextOverlay…`); two
+  writers on one key is legal only as *`ThemeConfig` default + owning pane's user value*, and **a colour travels as a key, never a `Brush`**. What keeps the meter's five global
+  keys safe is one overlay alive plus every constructor republishing all five. See docs/DesignNotes.md → "Style state lives in the application resource dictionary".
 
 ## Fight list, boards, charts
 - **A row is one life**: `FightProjection.EngagementGapS = 30 s` for both lists; duration counts seconds inclusively
@@ -401,6 +411,41 @@ You are an expert AI assistant maintaining this C#/WPF/.NET 10 project.
 - **A repaint belongs to the capture that is open**: every subscriber checks `DerivedSnapshot.SessionId` before painting, and a
   disposed engine stops raising. `FightTable.ClearForNewCapture` runs on both sides of `ActiveChanged`.
 
+## Damage meter
+- **Its numeric columns are a closed set**: `MeterColumns` (Core) carries the rendered cell, header word, tooltip, settings key and missing-key default of
+  `% / Damage / DPS / RDPS / SDPS`; **hiding means the column's WIDTH becomes zero** (a collapsed text inside a fixed-width cell still reserves the cell), `Sec` has no switch
+  and no key, and tanking shares both the switches and the words.
+- **Three rates, three clocks**: DPS divides by this name's active seconds, RDPS by the latest six logged seconds, SDPS by the raid's span (`CalculateRates(row, raid, null)`,
+  the same call the summaries' SDPS column uses). An SDPS that reads like DPS on a late joiner is wrong; the raid/title row prints its DPS twice by definition, since the raid
+  over its own span is its average. See docs/DesignNotes.md → "Three rates, three denominators". Columns are presentation only — no flag reaches `MeterFactInput`, the lifecycle question, totals,
+  ranking or Copy Parse, and RDPS keeps being calculated while its column is off, so showing it asks for no warm-up. One `MeterColumnLayout` feeds header and rows
+  together. See docs/DesignNotes.md → "Damage meter column switches: hiding one reserves no width".
+- **Meter settings have ONE reader**: `DamageMeterConfigState.Load()` judges every key and range and the overlay constructor opens from it rather than parsing keys
+  itself (its own copy once read `OverlayEnableCritRate` with no 0..3 clamp, so the meter and its Setup panel disagreed). Likewise `MeterColumns.FromSwitches` is the only
+  check→mask fold — the ini read and the picker's checkboxes both go through it. **Every column key is `OverlayShow<What>Column`**, every one of them; `OverlayShowingDps` is a
+  different switch (which panel is open) and may not be reused for a column. `%`'s shipped `OverlayShowDamagePercent` is NOT read any more — accepted breaking change, the column
+  comes back at its default and `ConfigUtil.Save()` retires the line; no compatibility read, no migration.
+- **Which panels the meter has is one key (`OverlayMeterPanels`, Core `MeterPanels`) and it answers two questions**: which tabs exist, and
+  **which activity may open the window or keep it up** — a lane the operator does not watch cannot pop the overlay or hold it on screen.
+  Panels are earned per fact (`MeterActivityIndex.AcceptsPending` shares projection's `CombatAnchor` and `CombatTarget`: `RaidSide` ⇒ Tanking,
+  filter-allowed `AtOwner` ⇒ Damage, `Neither` ⇒ nothing; incoming stays exempt from the exclusions). Not incoming is not proof of output:
+  uncredited charm combat may renew neither receipts nor pending continuity. Panels are intersected **at read time**
+  (`ForMode(mode, panels)`, `MeterArrivals.Observed(panels)`), so widening the choice is a read rather than a rescan. **Never none**:
+  `LoadPanels()` folds junk to Both and no surface offers none. Hiding is display-only for numbers — both
+  directions keep computing, so boards and export are untouched and coming back needs no warm-up; Copy Parse copies the tab you are on, which is
+  the same half that is drawn. **Three questions, three doors**: the TAB PAIR comes from the setting alone, WHAT IS DRAWN is the tab that was picked (`DrawsDamagePanel`) — nothing may move the operator to the
+  other half because it has data — and the WINDOW exists while at least one ENABLED half has a row (`AnyPanelHasEntries`), with a busy hidden
+  half nudging its tab (`SetTabAttention`, never a board switch; timing in DesignNotes); an entry is any listed row (player, `X +Pets`,
+  mercenary, Reverse DS) counted **before the class filter** (`HasRowEntries` — a lens may not delete the window, only an empty lane does, while
+  the bars and the nudge do obey the filter), and rows cannot time a close — only the
+  receipts can. A meter that opens itself stays transparent until a paint has a row (`RevealOnFirstContent`); one opened from the menu appears at once. See docs/DesignNotes.md → "Which panels the meter shows decides what may wake it and what is worth displaying".
+- **The meter's per-cell tables refuse an unnamed cell**: `MeterColumnLayout`'s width-preset and inset switches name every `MeterSlot` and throw on one they do not,
+  while `MeterColumnLayoutTest` pins the drawn block to exactly those cells — a new column arrives with preset, inset, header word and expectations in one change. An
+  unreadable **font size** still lays out like the ceiling: a bad ini value reaches players, an unmapped enum member does not.
+- **Companion placement is desktop pixels in `MeterPanelPlacement`** (`PlaceBesideStage`, `FollowWidth`) — pure functions, headless-tested; the Setup panel never reads
+  `SystemParameters.WorkArea` (primary monitor, in DIPs) and never mixes a DIP size into a pixel boundary. A failed native read or move is one WARN and a panel that sits
+  still; it does not throw out of a move/size handler, and following attaches even when the opening dock could not read the stage.
+
 ## FCT overlay
 - **Vocabulary closed**: region schemes `Bands`/`ByType`, styles `Freeze`/`Fountain`/`Spray`/`Arc` (+ `Straight`), and
   `FctArcBend` = `out|left|right` (junk ⇒ `out`). A new word arrives with a settings entry, a panel item, and tests.
@@ -418,7 +463,12 @@ You are an expert AI assistant maintaining this C#/WPF/.NET 10 project.
 - **The fight pane shows no status text at all**; failures reach `eqlogparser.log`, triage by `grep -E "board ask|stats build"`,
   and `grep -c "Derived damage summary error"` is the first question when a board looks stale (a swallowed exception froze every
   grid once — a field a dictionary keys on must be non-null at BOTH ends when stored data can be old).
-- **`EQLogParser.Wpf.Test`** is the Windows-only assembly; build it explicitly (`EnableWindowsTargeting`) when touching UI code.
+- **Nothing may escape a thread that has no net**: a timer callback, a work item or a context-less `async void` fault reaches
+  `AppDomain.UnhandledException` with `IsTerminating`, which ends the process — hold it at `ThreadBoundary.Guard`/`Note` (Error once per site+kind through
+  `RepeatCap`, counted after that; per subscriber for an event fan-out, so one window's handler cannot starve the others). The three App nets set
+  `Handled`/`SetObserved` **before** reporting and send a reporting failure to Trace. A cosmetic native refusal (`SetWindowTopMost`, `SetWindowLong`) keeps the
+  window as it was with one Warn per error code instead of throwing into a handler. See docs/DesignNotes.md →
+  "Nothing escapes a thread that has no net, and a fault speaks once".
 - **Releases**: when touching `sign.cmd` or `EQLogParserInstall/*.iss`, read `docs/ReleaseChecklist.md`.
 
 ## Post-Implementation Checklist

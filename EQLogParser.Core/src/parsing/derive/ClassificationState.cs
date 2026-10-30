@@ -8,17 +8,18 @@ namespace EQLogParser
    * One replayable assertion the evidence stage wrote, so a later pass can re-create the store without
    * re-walking the evidence it came from. The digest EntityTimeline folds is a commutative sum, so replaying
    * these in append order — or any order — lands the same value a full walk would.
+   *
+   * IDENTITY ONLY, and that is the design rather than a gap: an affiliation interval never travels as a
+   * claim, because an interval's correctness depends on verdicts that can move and replaying it unconditionally
+   * would assert an earlier pass's side into today's stage order. R9's charm windows and R18's healed-pet
+   * intervals rebuild from their own carried aggregates every pass instead (see this class's header), and a
+   * summon's confessed master is re-derived through PetLeaders for the same reason. So a claim needs exactly
+   * what SetIdentity takes — name, kind, strength, the rule that said it — and no time bounds: every claim this
+   * stage makes is effective for the whole capture, which is also SetIdentity's own default.
    */
-  internal readonly record struct TimelineClaim(bool IsAffiliation, string Name, int Kind, int Strength,
-                                                string Source, double T0, double T1, string Owner)
+  internal readonly record struct TimelineClaim(string Name, IdentityKind Kind, int Strength, string Source)
   {
-    public void Apply(EntityTimeline timeline)
-    {
-      if (IsAffiliation)
-        timeline.AddAffiliation((AffiliationKind)Kind, Name, T0, T1, Strength, Source, Owner);
-      else
-        timeline.SetIdentity(Name, (IdentityKind)Kind, Strength, Source, T0);
-    }
+    public void Apply(EntityTimeline timeline) => timeline.SetIdentity(Name, Kind, Strength, Source);
   }
 
   /*
@@ -70,7 +71,8 @@ namespace EQLogParser
     internal int R15VetoCursor;                  // R15 swing-back veto over facts.Facts
     internal int R7FactCursor;                   // R7 edge walk
     internal int R21FactCursor;                  // R21 line-shape flag walk over facts.Facts
-    internal int R21EvidenceCursor;              // R21 cast-message walk over facts.Evidence
+    internal int R21EvidenceCursor;              // R21 caster-subject walk over facts.Evidence
+    internal int R21HealCursor;                  // R21 healing combatant roles
     internal int R18HealCursor;                  // R18 heal walk
     internal int R18VetoCursor;                  // R18 swing-back veto
 
@@ -114,23 +116,9 @@ namespace EQLogParser
     internal readonly Dictionary<string, ClassificationRules.HealEdgeAgg> R18Candidates = new(StringComparer.Ordinal);
     internal readonly Dictionary<string, AttackVeto> R18Vetos = new(StringComparer.Ordinal);
 
-    // ---- R21: spell names, both feeds carried as NAME SETS (the claims are re-played onto each fresh store,
-    // in proof order — a name the damage line itself named first, then one only a casting message named, and that
-    // second set only ever holds names the capture also fought: see the pool gate in ApplySpellEffects).
-    // The sets, not the cursors, are what makes a carried pass still verdict OLD names. ----
-
-    internal readonly HashSet<string> SpellLineNames = new(StringComparer.Ordinal);
-    internal readonly HashSet<string> SpellCastNames = new(StringComparer.Ordinal);
-
-    /*
-     * R21 cast tokens the pool gate REFUSED: the cursor already walked past them, so a carried pass will never re-read the
-     * evidence line that named them - what it CAN do is re-ask the question each pass, because the pool only grows (a name
-     * enters as its first combat line arrives and never leaves). Without this list the refusal was permanent: a new fact
-     * interns its names without moving any verdict, so StateStamp never moves, no full rebuild ever happens, and a name
-     * whose first sighting was a cast token stayed Unknown for the rest of the capture (docs/DesignNotes.md →
-     * "R21's pool gate staleness, stated as accepted" - the bound that comment promised is what this set restores).
-     */
-    internal readonly HashSet<string> SpellCastRejected = new(StringComparer.Ordinal);
+    // R21 replays roles, not verdicts: a later combatant sighting retires an earlier spell-only claim.
+    internal readonly HashSet<string> SpellLineNames = new(StringComparer.OrdinalIgnoreCase);
+    internal readonly HashSet<string> CombatantNames = new(StringComparer.OrdinalIgnoreCase);
 
     // ---- R7: per-attacker side evidence; the eval loop runs over the carry every pass like today ----
 
@@ -152,6 +140,7 @@ namespace EQLogParser
       R7FactCursor = 0;
       R21FactCursor = 0;
       R21EvidenceCursor = 0;
+      R21HealCursor = 0;
       R18HealCursor = 0;
       R18VetoCursor = 0;
 
@@ -173,8 +162,7 @@ namespace EQLogParser
       R18Candidates.Clear();
       R18Vetos.Clear();
       SpellLineNames.Clear();
-      SpellCastNames.Clear();
-      SpellCastRejected.Clear();
+      CombatantNames.Clear();
       GraphAggs.Clear();
       Charms = null;
     }

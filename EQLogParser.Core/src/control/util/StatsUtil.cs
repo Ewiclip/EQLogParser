@@ -1,7 +1,5 @@
-using log4net;
 using System.Collections.Concurrent;
 using System.Globalization;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -17,8 +15,6 @@ namespace EQLogParser
     internal static readonly CompositeFormat SpecialFormat = CompositeFormat.Parse("{0} {{{1}}}");
     internal const int SpecialOffset = 15;
     internal const int DeathOffset = 15;
-
-    private static readonly ILog Log = LogManager.GetLogger(MethodBase.GetCurrentMethod()?.DeclaringType);
 
     private static readonly ConcurrentDictionary<string, byte> RegularMeleeTypes = new(new Dictionary<string, byte>
     {
@@ -194,6 +190,24 @@ namespace EQLogParser
       return result;
     }
 
+    /*
+     * A rate over an elapsed DURATION: a total divided by the seconds that produced it, rounded before it is stored as whole damage per
+     * second. Encounter DPS on every board, each builder's raid line, the meter's own raid cell and a chart series' aggregate all divide
+     * here, so a DPS cell and its raid total cannot disagree about one formula. A caller whose seconds can be zero asks first (a cast of
+     * an infinity is not a rate), as ChartSeriesBuilder.SetRates does. A fixed whole-second window takes RateOverWholeSeconds instead.
+     */
+    internal static long RatePerSecond(long total, double seconds) => (long)Math.Round(total / seconds, 2);
+
+    /*
+     * A rate over a WHOLE-NUMBER window — the six logged seconds behind meter RDPS and the charts' rolling lane — divides as integers,
+     * deliberately. Such a sum can sit past 2^53, where a double holds not every integer and rounding through one would drop units the
+     * amounts themselves still carry (ChartRollingSeriesTest.WideAmountsAreNeverRoundedThroughFloatingPoint).
+     * Truncation is part of that law rather than an oversight: the quotient stays
+     * exact, and a window holding less than one damage per logged second prints 0, which is what the RDPS section of DesignNotes requires.
+     * Nothing writes `/ 6` in place.
+     */
+    internal static long RateOverWholeSeconds(long total, int seconds) => total / seconds;
+
     internal static void UpdateMinMaxTimes(PlayerStats raidTotals, GenerateStatsOptions options, out double startTime, out double stopTime)
     {
       startTime = double.NaN;
@@ -270,16 +284,22 @@ namespace EQLogParser
       }
     }
 
-    internal static void UpdateAllStatsTimeRanges(PlayerStats stats, ConcurrentDictionary<string, TimeRange> playerTimeRanges,
+    /* Returns the span TotalSeconds was read out of (null when this name has none), so a reader that needs the same coverage - BusyTimePolicy -
+       can cut against it instead of building a second one. */
+    internal static TimeRange UpdateAllStatsTimeRanges(PlayerStats stats, ConcurrentDictionary<string, TimeRange> playerTimeRanges,
       ConcurrentDictionary<string, ConcurrentDictionary<string, TimeRange>> playerSubTimeRanges, double minTime = double.NaN, double maxTime = double.NaN)
     {
+      TimeRange covered = null;
+
       if (playerTimeRanges.TryGetValue(stats.Name, out var range))
       {
-        var filteredRange = FilterTimeRange(range, minTime, maxTime);
-        stats.TotalSeconds = filteredRange.GetTotal();
+        covered = FilterTimeRange(range, minTime, maxTime);
+        stats.TotalSeconds = covered.GetTotal();
       }
 
       UpdateSubStatsTimeRanges(stats, playerSubTimeRanges, minTime, maxTime);
+
+      return covered;
     }
 
     internal static void UpdateSubStatsTimeRanges(PlayerStats stats, ConcurrentDictionary<string, ConcurrentDictionary<string, TimeRange>> playerSubTimeRanges,
@@ -639,9 +659,9 @@ namespace EQLogParser
       if (stats.Hits > 0)
       {
         stats.Potential = stats.Total + stats.Extra;
-        stats.Dps = (long)Math.Round(stats.Total / stats.TotalSeconds, 2);
-        stats.Sdps = (long)Math.Round(stats.Total / raidStats.TotalSeconds, 2);
-        stats.Pdps = (long)Math.Round(stats.Potential / stats.TotalSeconds, 2);
+        stats.Dps = RatePerSecond(stats.Total, stats.TotalSeconds);
+        stats.Sdps = RatePerSecond(stats.Total, raidStats.TotalSeconds);
+        stats.Pdps = RatePerSecond(stats.Potential, stats.TotalSeconds);
         stats.Avg = (long)Math.Round(Convert.ToDecimal(stats.Total) / stats.Hits, 2);
 
         if ((stats.CritHits - stats.LuckyHits) is var nonLucky and > 0)
@@ -713,11 +733,11 @@ namespace EQLogParser
         if (subStats is { Total: > 0 })
         {
           stats.Percent = (float)Math.Round((float)stats.Total / subStats.Total * 100, 2);
-          stats.Sdps = (long)Math.Round(stats.Total / subStats.TotalSeconds, 2);
+          stats.Sdps = RatePerSecond(stats.Total, subStats.TotalSeconds);
         }
         else if (subStats == null)
         {
-          stats.Sdps = (long)Math.Round(stats.Total / raidStats.TotalSeconds, 2);
+          stats.Sdps = RatePerSecond(stats.Total, raidStats.TotalSeconds);
         }
       }
     }

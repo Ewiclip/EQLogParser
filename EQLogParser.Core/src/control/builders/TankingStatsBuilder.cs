@@ -297,6 +297,7 @@ namespace EQLogParser
                       var stats = StatsUtil.CreatePlayerStats(individualStats, record.Defender);
                       var isNewFrame = StatsUtil.CheckNewFrame(prevPlayerTimes, stats.Name, block.BeginTime);
                       StatsUtil.UpdateDamageStats(stats, record, isNewFrame);
+                      BusyTimePolicy.Note(stats, block.BeginTime);
                       var subStats = stats.SubStatOf(record.SubType, record.Type);
 
                       var critHits = subStats.CritHits;
@@ -318,7 +319,7 @@ namespace EQLogParser
 
             StatsBuildTrace.Stage(trace, "walk");
 
-            _raidTotals.Dps = (long)Math.Round(_raidTotals.Total / _raidTotals.TotalSeconds, 2);
+            _raidTotals.Dps = StatsUtil.RatePerSecond(_raidTotals.Total, _raidTotals.TotalSeconds);
             StatsUtil.PopulateSpecials(_raidTotals);
 
             var uniqueClasses = new HashSet<string>();
@@ -342,6 +343,9 @@ namespace EQLogParser
 
               var filteredTimeRange = StatsUtil.FilterTimeRange(timeRange, startTime, stopTime);
               stats.TotalSeconds = filteredTimeRange.GetTotal();
+
+              // Busy is cut inside the span this row's Sec was just read from, so incoming attempts cannot out-count their own range.
+              BusyTimePolicy.Apply(stats, filteredTimeRange);
 
               var playerClass = PlayerRegistry.Instance.GetPlayerClass(stats.OrigName, lastTime);
               stats.ClassName = playerClass;

@@ -1,158 +1,193 @@
 using System;
 using System.Collections.Generic;
 
-namespace EQLogParser
+namespace EQLogParser;
+
+// Data selects membership; receipt time controls visibility. Reset/expiry cut at a captured ordinal, never a PC timestamp.
+// docs/DesignNotes.md → "Damage overlay: fight accounting and display retention".
+internal sealed class DamageOverlayLifecycle
 {
-  // Accounting is per life in On Kill mode; the completed result's display grace is not an accounting boundary.
-  // See docs/DesignNotes.md → Damage overlay: fight accounting and display retention.
-  internal sealed class DamageOverlayLifecycle
+  internal const double CompletedDisplaySeconds = 8;
+  private int _sessionId = -1;
+  private int _firstOrdinal;
+  private double _timedStart = double.NaN;
+  // Scalar log-time high-water mark survives calculator/window replacement, never a PC timestamp.
+  private long _windowSecond = MeterRecentWindow.NoSecond;
+  // Accounting keeps this panel choice's receipt high-water mark; filtering can hide, not expire it early.
+  private MeterArrival _retirementArrival = MeterArrival.None;
+  private MeterPanels _panels = MeterPanels.Both;
+
+  internal DamageOverlayLifecycle Copy() => new()
   {
-    internal const double CompletedDisplaySeconds = 8;
-    private int _sessionId = -1;
-    private double _resetTime = double.NegativeInfinity;
-    private double _timedStart = double.NaN;
+    _sessionId = _sessionId,
+    _firstOrdinal = _firstOrdinal,
+    _timedStart = _timedStart,
+    _windowSecond = _windowSecond,
+    _retirementArrival = _retirementArrival,
+    _panels = _panels
+  };
 
-    internal DamageOverlayLifecycle Copy() => new()
+  // False means an accounting bound changed: refresh activity from SelectCandidates before selecting again.
+  internal bool TrySelect(int sessionId, IReadOnlyList<DerivedFight> rows, double now, int mode,
+    MeterArrival arrival, int capturedCount, out DamageOverlayScope scope, OverlayPendingActivity pending = null,
+    Func<DerivedFight, MeterLifeActivity> activity = null, MeterPanels panels = MeterPanels.Both)
+  {
+    scope = null;
+    EnsureSession(sessionId);
+    if (_panels != panels)
     {
-      _sessionId = _sessionId,
-      _resetTime = _resetTime,
-      _timedStart = _timedStart
-    };
-
-    internal DamageOverlayScope Select(int sessionId, IReadOnlyList<DerivedFight> rows, double now, int mode,
-      OverlayPendingActivity pending = null, Func<DerivedFight, MeterLifeActivity> activity = null)
-    {
-      EnsureSession(sessionId);
-      return mode == 0 ? SelectOnKill(rows, now, pending, activity) : SelectTimed(rows, now, mode, pending, activity);
+      // Widening retains every prior lane; only removing a lane can invalidate its retirement clock.
+      if ((panels & _panels) != _panels) _retirementArrival = MeterArrival.None;
+      _panels = panels;
     }
-
-    // Activity must inspect every eligible completion before excluded active/newer lives can be discarded.
-    internal DamageOverlayScope SelectCandidates(int sessionId, IReadOnlyList<DerivedFight> rows, double now, int mode,
-      OverlayPendingActivity pending = null)
+    if (arrival.Through > _firstOrdinal && arrival.Time >= _retirementArrival.Time) _retirementArrival = arrival;
+    if (mode != 0 && arrival.FirstOrdinal > _firstOrdinal)
     {
-      var state = Copy();
-      state.EnsureSession(sessionId);
-      return mode == 0 ? state.SelectOnKill(rows, now, pending, null, true)
-        : state.SelectTimed(rows, now, mode, pending, null);
+      // A missed quiet interval cuts BEFORE the new run, even if every receipt shares one log second.
+      _firstOrdinal = arrival.FirstOrdinal;
+      _timedStart = double.NegativeInfinity;
+      _windowSecond = MeterRecentWindow.NoSecond;
+      return false;
     }
-
-    internal void Reset(int sessionId, double now)
+    var selected = new List<DerivedFight>();
+    var edge = CaptureEdge(rows, activity, out var latestActivity, out var latestSequence);
+    if (mode != 0)
     {
-      _sessionId = sessionId;
-      _resetTime = now;
-      _timedStart = now;
-    }
-
-    internal static bool HasRecentActivity(IReadOnlyList<DerivedFight> rows, double now, int mode,
-      OverlayPendingActivity pending = null)
-    {
-      foreach (var row in rows)
+      if (double.IsNaN(_timedStart) && double.IsFinite(edge) && arrival.Through > _firstOrdinal)
       {
-        if (row.DamageTotal <= 0 || row.BeginTime > now) continue;
-        if (mode != 0 && IsRecent(row.LastTime, now, mode)) return true;
-        if (mode == 0 && (IsActive(row, row.LastTime, now)
-          || IsCompleted(row) && IsRecent(CompletedAt(row), now, CompletedDisplaySeconds))) return true;
+        _timedStart = edge - mode;
+        return false;
       }
-      return pending?.IsRecent(now, mode == 0 ? FightProjection.EngagementGapS : mode) == true;
+      foreach (var row in rows)
+        if (Eligible(row, activity) && Activity(row, activity).Last >= _timedStart) selected.Add(row);
     }
-
-    internal static int LatestActivityOrdinal(IReadOnlyList<DerivedFight> rows, double now)
+    else
     {
-      var newest = 0;
+      // Accepted attempts move the boundary even before their life has positive damage, on either side of projection.
+      latestActivity = Math.Max(latestActivity, pending?.Latest ?? double.NegativeInfinity);
+      latestSequence = Math.Max(latestSequence, pending?.LatestSequence ?? -1);
+      edge = Math.Max(edge, latestActivity);
       foreach (var row in rows)
       {
-        if (row.DamageTotal <= 0 || row.BeginTime > now) continue;
-        newest = Math.Max(newest, row.FactEnd);
+        if (!Eligible(row, activity) || row.Dead || row.EndReason != DerivedFightEnd.Open) continue;
+        var last = Activity(row, activity).Last;
+        last = Math.Max(last, pending?.ContinuedThrough(row.Name, last) ?? double.NegativeInfinity);
+        if (edge - last <= FightProjection.EngagementGapS) selected.Add(row);
       }
-      return newest;
-    }
-
-    private void EnsureSession(int sessionId)
-    {
-      if (_sessionId == sessionId) return;
-      _sessionId = sessionId;
-      _resetTime = double.NegativeInfinity;
-      _timedStart = double.NaN;
-    }
-
-    private DamageOverlayScope SelectOnKill(IReadOnlyList<DerivedFight> rows, double now, OverlayPendingActivity pending,
-      Func<DerivedFight, MeterLifeActivity> activity, bool candidates = false)
-    {
-      var active = new List<DerivedFight>();
-      var completed = new List<DerivedFight>();
-      var latestEnd = double.NegativeInfinity;
-      var expires = double.NegativeInfinity;
-      foreach (var row in rows)
+      if (selected.Count == 0)
       {
-        var current = Activity(row, activity);
-        if (!current.HasDamage || row.BeginTime > now || current.Last < _resetTime) continue;
-        var pendingLast = pending?.ContinuedThrough(row.Name, current.Last, now) ?? double.NegativeInfinity;
-        if (IsActive(row, current.Last, now)
-          || !row.Dead && row.EndReason == DerivedFightEnd.Open && double.IsFinite(pendingLast))
+        var latestEnd = double.NegativeInfinity;
+        var completedSequence = -1;
+        var completionOrderKnown = true;
+        foreach (var row in rows)
         {
-          active.Add(row);
-          expires = Math.Max(expires, Math.Max(current.Last, pendingLast) + FightProjection.EngagementGapS);
-        }
-        else if (IsCompleted(row))
-        {
-          var ended = CompletedAt(row);
-          if (!IsRecent(ended, now, CompletedDisplaySeconds) || !candidates && ended < latestEnd) continue;
-          if (ended > latestEnd)
+          if (!Eligible(row, activity) || !IsCompleted(row)) continue;
+          var end = CompletedAt(row);
+          if (edge - end > CompletedDisplaySeconds || end < latestEnd || latestActivity > end) continue;
+          if (end > latestEnd)
           {
-            if (!candidates) completed.Clear();
-            latestEnd = ended;
+            selected.Clear();
+            latestEnd = end;
+            completedSequence = -1;
+            completionOrderKnown = true;
           }
-          completed.Add(row);
+          selected.Add(row);
+          completionOrderKnown &= row.EndReason == DerivedFightEnd.Slain && row.DeathSequence >= 0;
+          completedSequence = Math.Max(completedSequence,
+            Math.Max(row.DeathSequence, Activity(row, activity).LastSequence));
         }
+        // Inferred charm completions have no captured death order. Never guess that order from their last hit.
+        if (completionOrderKnown && latestSequence > completedSequence) selected.Clear();
       }
-      if (candidates)
-      {
-        active.AddRange(completed);
-        return new DamageOverlayScope(active, _resetTime);
-      }
-      return active.Count > 0 ? new DamageOverlayScope(active, _resetTime, expires)
-        : new DamageOverlayScope(completed, _resetTime, latestEnd + CompletedDisplaySeconds);
     }
 
-    private DamageOverlayScope SelectTimed(IReadOnlyList<DerivedFight> rows, double now, int mode,
-      OverlayPendingActivity pending, Func<DerivedFight, MeterLifeActivity> activity)
+    var completedOnly = mode == 0 && selected.Count > 0 && IsCompleted(selected[0]);
+    var timeout = mode != 0 ? mode : completedOnly ? CompletedDisplaySeconds : FightProjection.EngagementGapS;
+    var deadline = (arrival.Through > _firstOrdinal ? arrival.Time : _retirementArrival.Time) + timeout;
+    if (arrival.Through <= _firstOrdinal || now > deadline)
     {
-      if (double.IsNaN(_timedStart)) _timedStart = Math.Max(_resetTime, now - mode);
-      var selected = new List<DerivedFight>();
-      var latest = double.NegativeInfinity;
-      foreach (var row in rows)
+      selected.Clear();
+      if (mode != 0 && _retirementArrival.Through > _firstOrdinal && now > _retirementArrival.Time + timeout)
       {
-        var current = Activity(row, activity);
-        if (!current.HasDamage || row.BeginTime > now || current.Last < _timedStart) continue;
-        selected.Add(row);
-        latest = Math.Max(latest, current.Last);
+        // A pruned receipt still expires, but exclusions alone do not spend its remaining time.
+        // Retire only the checked prefix, never records appended while the receipt scan ran.
+        _firstOrdinal = Math.Max(_firstOrdinal, capturedCount);
+        _timedStart = double.NaN;
+        _windowSecond = MeterRecentWindow.NoSecond;
       }
-      if (pending?.IsRecent(now, mode) == true) latest = Math.Max(latest, pending.Latest);
-      if (now - latest > mode)
-      {
-        selected.Clear();
-        _timedStart = now;
-      }
-      return new DamageOverlayScope(selected, _timedStart,
-        selected.Count > 0 ? latest + mode : double.NegativeInfinity);
     }
-
-    private static MeterLifeActivity Activity(DerivedFight row, Func<DerivedFight, MeterLifeActivity> activity) =>
-      activity is null ? new MeterLifeActivity(row.DamageTotal > 0, row.LastTime) : activity(row);
-
-    private static bool IsActive(DerivedFight row, double last, double now) =>
-      !row.Dead && row.EndReason == DerivedFightEnd.Open && IsRecent(last, now, FightProjection.EngagementGapS);
-    private static bool IsCompleted(DerivedFight row) => row.EndReason is DerivedFightEnd.Slain or DerivedFightEnd.Charmed;
-    private static double CompletedAt(DerivedFight row) => double.IsNaN(row.DeathTime) ? row.LastTime : row.DeathTime;
-    private static bool IsRecent(double time, double now, double seconds) => time <= now && now - time <= seconds;
+    foreach (var row in selected)
+      _windowSecond = Math.Max(_windowSecond, MeterRecentWindow.SecondOf(row.LastTime));
+    scope = new DamageOverlayScope(selected, FromTime(mode), deadline, _firstOrdinal, _windowSecond);
+    return true;
   }
 
-  // A transient selection and its wall-clock expiry. The dispatcher can hide expired results while a build is blocked.
-  internal sealed class DamageOverlayScope(IReadOnlyList<DerivedFight> rows, double fromTime,
-    double expiresAt = double.NegativeInfinity)
+  // Inspect all post-reset lives before exclusions choose a data edge. An excluded newer life must not hide an older accepted one.
+  internal DamageOverlayScope SelectCandidates(int sessionId, IReadOnlyList<DerivedFight> rows, int mode)
   {
-    internal IReadOnlyList<DerivedFight> Rows { get; } = rows;
-    internal double FromTime { get; } = fromTime;
-    internal double ExpiresAt { get; } = expiresAt;
+    EnsureSession(sessionId);
+    var selected = new List<DerivedFight>();
+    foreach (var row in rows)
+      if (row.FactEnd > _firstOrdinal) selected.Add(row);
+    return new DamageOverlayScope(selected, FromTime(mode), firstOrdinal: _firstOrdinal);
   }
+
+  internal void Reset(int sessionId, int capturedCount)
+  {
+    _sessionId = sessionId;
+    _firstOrdinal = capturedCount;
+    _timedStart = double.NaN;
+    _windowSecond = MeterRecentWindow.NoSecond;
+    _retirementArrival = MeterArrival.None;
+    _panels = MeterPanels.Both;
+  }
+
+  internal static bool HasRecentActivity(MeterArrival arrival, double now, int mode) =>
+    arrival.Through > 0 && now <= arrival.Time + (mode == 0 ? FightProjection.EngagementGapS : mode);
+
+  private void EnsureSession(int sessionId)
+  {
+    if (_sessionId != sessionId) Reset(sessionId, 0);
+  }
+
+  private double FromTime(int mode) => mode == 0 || double.IsNaN(_timedStart)
+    ? double.NegativeInfinity : _timedStart;
+
+  private bool Eligible(DerivedFight row, Func<DerivedFight, MeterLifeActivity> activity) =>
+    row.FactEnd > _firstOrdinal && Activity(row, activity).HasDamage;
+
+  private double CaptureEdge(IReadOnlyList<DerivedFight> rows, Func<DerivedFight, MeterLifeActivity> activity,
+    out double latestActivity, out int latestSequence)
+  {
+    var edge = double.NegativeInfinity;
+    latestActivity = double.NegativeInfinity;
+    latestSequence = -1;
+    foreach (var row in rows)
+    {
+      if (row.FactEnd <= _firstOrdinal) continue;
+      var current = Activity(row, activity);
+      latestActivity = Math.Max(latestActivity, current.Last);
+      latestSequence = Math.Max(latestSequence, current.LastSequence);
+      // Timed initialization and death grace still require positive, accepted damage.
+      if (!current.HasDamage) continue;
+      edge = Math.Max(edge, IsCompleted(row) ? Math.Max(current.Last, CompletedAt(row)) : current.Last);
+    }
+    return edge;
+  }
+
+  private static MeterLifeActivity Activity(DerivedFight row, Func<DerivedFight, MeterLifeActivity> activity) =>
+    activity is null ? new MeterLifeActivity(row.DamageTotal > 0, row.LastTime, row.LastSequence) : activity(row);
+
+  private static bool IsCompleted(DerivedFight row) => row.EndReason is DerivedFightEnd.Slain or DerivedFightEnd.Charmed;
+  private static double CompletedAt(DerivedFight row) => double.IsNaN(row.DeathTime) ? row.LastTime : row.DeathTime;
+}
+
+internal sealed class DamageOverlayScope(IReadOnlyList<DerivedFight> rows, double fromTime,
+  double expiresAt = double.NegativeInfinity, int firstOrdinal = 0, long windowSecond = MeterRecentWindow.NoSecond)
+{
+  internal IReadOnlyList<DerivedFight> Rows { get; } = rows;
+  internal double FromTime { get; } = fromTime;
+  internal double ExpiresAt { get; } = expiresAt;
+  internal int FirstOrdinal { get; } = firstOrdinal;
+  internal long WindowSecond { get; } = windowSecond;
 }

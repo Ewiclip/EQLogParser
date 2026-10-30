@@ -17,6 +17,7 @@ namespace EQLogParser
 
     private readonly ParseLane _lane;
     private readonly IFactTable _facts;
+    private readonly Action<int, double> _damageArrived;
 
     /*
      * The heal stream, or null when the caller did not ask for one. Own table by choice — see HealFact's
@@ -36,11 +37,13 @@ namespace EQLogParser
     private long _lastSeenTs = -1;
     private long _firstSeenTs = -1;
 
-    public CombatCapture(IFactTable facts, IHealFactTable heals = null, ParseLane lane = null)
+    public CombatCapture(IFactTable facts, IHealFactTable heals = null, ParseLane lane = null,
+      Action<int, double> damageArrived = null)
     {
       _facts = facts ?? throw new ArgumentNullException(nameof(facts));
       _heals = heals;
       _lane = lane ?? ParseLane.Main;
+      _damageArrived = damageArrived;
 
       // One capture, one tally of the fact-packing guards (FactTime's clamp counter, HealFact's mask/label counters). They
       // are process statics because a row is a struct with no session to hang them on, and a fresh capture is the point
@@ -238,6 +241,7 @@ namespace EQLogParser
       if (r.AttackerIsSpell) flags |= DamageFact.FlagAttackerIsSpell;
       if (HasOwnershipInLine(e.Action, r.Attacker)) flags |= DamageFact.FlagOwnerInLine;
 
+      int receiptThrough;
       lock (_gate)
       {
         MarkTs(e.BeginTime);
@@ -259,7 +263,18 @@ namespace EQLogParser
           // those filters was switched off, which is what FightSummarySource used to have to warn about.
           modMask: r.ModifiersMask,
           subIdx: subIdx));
+        receiptThrough = _facts.FactCount;   // read where it is exact; credited below, outside this gate
       }
+
+      /*
+       * The receipt is taken OUTSIDE the capture gate. One damage line is one event, so this is the hottest path in the application,
+       * and the receipt store keeps its own lock: nesting them would make "capture gate first, then arrivals gate" an ordering law
+       * visible from neither class, and any future callback out of MeterArrivals would deadlock over it. Reading the count inside the
+       * gate and crediting outside it costs nothing the store does not already absorb — Record drops a value that does not advance,
+       * and a reader can be at most one derive pass between seeing the fact and seeing its receipt, which is how damage arriving
+       * mid-scan already behaves. Docs: "Damage overlay: fight accounting and display retention".
+       */
+      _damageArrived?.Invoke(receiptThrough, e.BeginTime);
     }
 
     /*
